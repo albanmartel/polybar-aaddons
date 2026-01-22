@@ -184,7 +184,7 @@ Suivez ces étapes pour récupérer, compiler et installer l'ensemble des outils
 
 Bash
 
-    git clone https://github.com/votre-utilisateur/votre-depot.git
+    git clone [https://github.com/albanmartel/polybar-aaddons](https://github.com/albanmartel/polybar-aaddons)
     cd votre-depot
 
 ### 2. Compilation
