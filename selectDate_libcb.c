@@ -3,8 +3,13 @@
 #include <string.h>
 #include <time.h>
 #include <libclipboard.h>
+#include <sys/prctl.h>
+
+// --- NOM PROGRAMME ---
+#define PROGRAMME_NAME "selectDate_libcb"
 
 int main() {
+    prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
     char date[128] = {0};
     char info_cmd[512];
     FILE *fp;
