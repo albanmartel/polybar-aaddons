@@ -6,6 +6,9 @@ DESKTOP_DIR = /usr/share/applications
 BACKUP_NAME = backup_outils_$(shell date +%Y-%m-%d).tar.gz
 LOG_FILE = $(HOME)/log_systeme.txt
 
+# --- Dépendances ---
+DEPENDENCIES = zenity xclip wl-copy
+
 # --- INDIQUE A MAKE DE COMPILER PAR DÉFAUT ---
 .DEFAULT_GOAL := all
 
@@ -17,15 +20,21 @@ RESET = \033[0m
 
 # Détection des drapeaux GTK
 GTK_FLAGS = $(shell pkg-config --cflags --libs gtk+-3.0)
+# --- DRAPEAU DE DECTION LIBCLIPBOARD ---
+IP_FLAGS = -lclipboard
 
 # --- Détection Automatique ---
 SRCS = $(wildcard *.c)
 SRCS_GTK = $(shell grep -l "#include <gtk/gtk.h>" $(SRCS))
 SRCS_SIMPLE = $(shell grep -L "#include <gtk/gtk.h>" $(SRCS))
+SRCS_CLIP = $(shell grep -l "#include <libclipboard.h>" $(SRCS))
 
 PROGS_GTK = $(SRCS_GTK:.c=)
 PROGS_SIMPLE = $(SRCS_SIMPLE:.c=)
-ALL_PROGS = $(PROGS_GTK) $(PROGS_SIMPLE)
+PROGS_CLIP = $(SRCS_CLIP:.c=)
+
+# Mettre à jour la liste globale des programmes
+ALL_PROGS = $(PROGS_GTK) $(PROGS_CLIP) $(filter-out $(PROGS_CLIP), $(PROGS_SIMPLE))
 
 # --- Aide ---
 help:
@@ -74,6 +83,10 @@ $(PROGS_SIMPLE): %: %.c
 $(PROGS_GTK): %: %.c
 	@echo -e "$(BLUE)🎨 Compilation GTK+ :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(GTK_FLAGS)
+
+$(PROGS_CLIP): %: %.c
+	@echo -e "$(GREEN)📋 Compilation avec libclipboard :$(RESET) $<"
+	$(CC) $(CFLAGS) $< -o $@ $(CLIP_FLAGS)
 
 # --- Commande de Test ---
 test: all
