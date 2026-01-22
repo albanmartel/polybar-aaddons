@@ -9,7 +9,8 @@
 
 // Définition des couleurs
 #define COLOR_ON  "#CC5500"
-#define COLOR_OFF "#707880"
+/* #define COLOR_OFF "#707880" */
+#define COLOR_OFF "-"
 
 // Fonction pour récupérer la sortie d'une commande
 void get_command_output(const char* cmd, char* buffer, size_t size) {
@@ -57,7 +58,8 @@ int main() {
 
     // 3. Affichage final formaté pour Polybar
     // Utilisation de doubles %% pour échapper le caractère % dans printf
-    printf(" %s  %%{F%s}󰪛%%{F-}  %%{F%s}󰎤%%{F-}\n", 
+    /*--- affiche un fond transparent ---*/
+    printf("%%{B-} %s  %%{F%s}󰪛%%{F-}  %%{F%s}󰎤%%{F-}%%{B-}\n", 
             layout, 
             caps, 
             num);
