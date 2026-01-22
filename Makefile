@@ -21,7 +21,7 @@ RESET = \033[0m
 # Détection des drapeaux GTK
 GTK_FLAGS = $(shell pkg-config --cflags --libs gtk+-3.0)
 # --- DRAPEAU DE DECTION LIBCLIPBOARD ---
-IP_FLAGS = -lclipboard
+CLIP_FLAGS = -lclipboard
 
 # --- Détection Automatique ---
 SRCS = $(wildcard *.c)
@@ -35,6 +35,7 @@ PROGS_CLIP = $(SRCS_CLIP:.c=)
 
 # Mettre à jour la liste globale des programmes
 ALL_PROGS = $(PROGS_GTK) $(PROGS_CLIP) $(filter-out $(PROGS_CLIP), $(PROGS_SIMPLE))
+
 
 # --- Aide ---
 help:
@@ -59,6 +60,25 @@ help:
 	@echo ""
 	@echo -e "$(CYAN)Programmes détectés :$(RESET) [$(ALL_PROGS)]"
 
+# --- Vérification des dépendances ---
+check-deps:
+	@echo -e "$(CYAN)🔍 Vérification des dépendances...$(RESET)"
+	@for cmd in $(DEPENDENCIES); do \
+		if ! command -v $$cmd &> /dev/null; then \
+			echo -e "$(RED)❌ Erreur : $$cmd n'est pas installé.$(RESET)"; \
+			exit 1; \
+		fi; \
+	done
+	@if [ ! -f /usr/include/libclipboard.h ] && [ ! -f /usr/local/include/libclipboard.h ]; then \
+		echo -e "$(RED)❌ Erreur : libclipboard.h non trouvé. Installez libclipboard-git (AUR).$(RESET)"; \
+		exit 1; \
+	fi
+	@echo -e "$(GREEN)✅ Toutes les dépendances sont présentes.$(RESET)"
+	
+
+check-libclip:
+	@ldconfig -p | grep libclipboard > /dev/null || (echo -e "$(RED)❌ Erreur: libclipboard n'est pas installée. Utilisez 'yay -S libclipboard-git'$(RESET)"; exit 1)
+
 # --- Rebuild (Forcer la recompilation) ---
 rebuild: clean all
 
@@ -74,7 +94,7 @@ logs:
 	@if [ -f $(LOG_FILE) ]; then tail -n 10 $(LOG_FILE); else echo "⚠️ Aucun log trouvé."; fi
 
 # --- Règles de Compilation ---
-all: $(ALL_PROGS)
+all: check-libclip check-deps $(ALL_PROGS)
 
 $(PROGS_SIMPLE): %: %.c
 	@echo -e "$(CYAN)🛠️  Compilation simple :$(RESET) $<"
