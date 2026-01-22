@@ -2,8 +2,13 @@
 #include <time.h>
 #include <locale.h>
 #include <string.h>
+#include <sys/prctl.h>
+
+// --- NOM PROGRAMME ---
+#define PROGRAMME_NAME "polybar_date"
 
 int main() {
+    prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
     // Définit la langue en français pour avoir "mardi" au lieu de "Tuesday"
     setlocale(LC_TIME, "fr_FR.UTF-8");
 
