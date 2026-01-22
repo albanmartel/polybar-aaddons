@@ -1,0 +1,84 @@
+# --- INTERNET ---
+firefox:󰈹
+chromium:
+thunderbird:󰇰
+claws:
+geary:
+falkon:󱄽
+konqueror:󰈹
+filezilla:󱂚
+neomutt:󰇮
+gneomutt:󰇮
+
+# --- DÉVELOPPEMENT & TERMINAUX ---
+vscodium:󰨞
+code:󰨞
+kate:󰷈
+kwrite:󰷈
+geany:󰷈
+gedit:󰷈
+vim:
+nvim:
+konsole:
+kitty:
+alacritty:
+qterminal:
+lxterminal:
+foot:
+xterm:
+uxterm:
+yakuake:
+glade:
+cmake:
+
+# --- BUREAUTIQUE ---
+libreoffice:󰏆
+abiword:󰏆
+okular:
+zathura:
+evince:
+calibre:󰂱
+scribus:󰏫
+mathematica:󰪚
+
+# --- GRAPHISME & MULTIMÉDIA ---
+gimp:
+inkscape:
+krita:
+shotwell:󰋩
+gthumb:󰋩
+viewnior:󰋩
+vlc:󰕼
+mpv:󰕼
+audacity:󰎆
+elisa:󰎈
+juk:󰎈
+kamoso:󰄀
+spectacle:󰄀
+flameshot:󰄀
+
+# --- SYSTÈME & FICHIERS ---
+thunar:󰉋
+pcmanfm:󰉋
+dolphin:󰉋
+ark:󰿖
+htop:
+btop:
+pavucontrol:󰓃
+systemsettings:
+lxqt-config:
+virt-manager:󰐊
+timeshift:󰁯
+gparted:󰆟
+
+# --- JEUX ---
+chess:󰄭
+bomber:󰄭
+2048:󰄭
+
+# --- FALLBACKS (Mots-clés généraux) ---
+# Ces lignes doivent être à la fin
+calc:󰪚
+mail:
+setting:
+camera:󰄀
