@@ -8,9 +8,9 @@
 #define PROGRAMME_NAME "kbd-status"
 
 // Définition des couleurs
-#define COLOR_ON  "#CC5500"
-/* #define COLOR_OFF "#707880" */
-#define COLOR_OFF "-"
+#define COLOR_ON   "#CC5500" // Orange
+#define COLOR_BASE "#000000" // Noir forcé
+#define COLOR_OFF   "#707880" // Noir pour les icônes éteintes
 
 // Fonction pour récupérer la sortie d'une commande
 void get_command_output(const char* cmd, char* buffer, size_t size) {
@@ -59,7 +59,8 @@ int main() {
     // 3. Affichage final formaté pour Polybar
     // Utilisation de doubles %% pour échapper le caractère % dans printf
     /*--- affiche un fond transparent ---*/
-    printf("%%{B-} %s  %%{F%s}󰪛%%{F-}  %%{F%s}󰎤%%{F-}%%{B-}\n", 
+    printf("%%{F%s} %s  %%{F%s}󰪛%%{F-}  %%{F%s}󰎤%%{F-}\n",
+            COLOR_BASE,
             layout, 
             caps, 
             num);
