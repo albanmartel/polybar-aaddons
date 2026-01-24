@@ -2,12 +2,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
-#include <stdarg.h> // Nécessaire pour box_pack_many
+#include <stdarg.h>
+
+/**
+ * @file help_center.c
+ * @brief Centre d'aide pour Arch Linux utilisant GTK+ 3.
+ * * Fournit une interface pour consulter les raccourcis clavier, 
+ * les pages de manuel système et effectuer des recherches via Surfraw.
+ */
 
 #define PROGRAMME_NAME "help-center"
 
 // --- RACCOURCIS ---
+/** @brief Chaîne contenant la liste formatée des raccourcis clavier Openbox. */
 const char *raccourcis_openbox_str = 
+    "--- OPENBOX---\n"
     "--- LANCEURS ---\n"
     "• Alt + F1       : Menu Rofi (Applications)\n"
     "• Win + Espace   : Menu Racine (Openbox)\n"
@@ -33,6 +42,7 @@ const char *raccourcis_openbox_str =
     "• Win + H        : Afficher cette aide";
 
 // --- MOTEURS DE RECHERCHE SURFRAW ---
+/** @brief Liste des moteurs de recherche supportés par Surfraw. */
 static const char *moteurs_surfraw[] = {
     "duckduckgo", "google", "bing", "stack", "wikipedia", "youtube",
     "acronym", "ads", "alioth", "amazon", "archpkg", "archwiki", "arxiv", "ask",
@@ -52,6 +62,10 @@ static const char *moteurs_surfraw[] = {
     "woffle", "wolfram", "worldwidescience", "yahoo", "yandex"
 };
 
+/**
+ * @struct AppWidgets
+ * @brief Structure regroupant les widgets principaux de l'application pour un accès facile dans les callbacks.
+ */
 typedef struct {
     GtkWidget *window;
     GtkWidget *stack;
@@ -63,6 +77,10 @@ typedef struct {
 } AppWidgets;
 
 // --- STYLE ---
+/**
+ * @brief Applique le thème CSS (Nord Theme) à l'application.
+ * Définit les couleurs de fond, le style des boutons et des champs de saisie.
+ */
 static void apply_style() {
     GtkCssProvider *provider = gtk_css_provider_new();
     gtk_css_provider_load_from_data(provider,
@@ -76,6 +94,10 @@ static void apply_style() {
 }
 
 // --- UTILS ---
+/**
+ * @brief Lance une commande shell de manière asynchrone sans bloquer l'UI.
+ * @param cmd La chaîne de commande à exécuter.
+ */
 static void safe_spawn(const char *cmd) {
     GError *error = NULL;
     if (!g_spawn_command_line_async(cmd, &error)) {
@@ -84,16 +106,28 @@ static void safe_spawn(const char *cmd) {
     }
 }
 
+/**
+ * @brief Libère la mémoire allouée pour le nom d'une page de manuel.
+ * Utilisé comme callback de destruction pour les signaux.
+ */
 static void free_page_name(gpointer data, GClosure *closure G_GNUC_UNUSED) {
     g_free(data);
 }
 
 // --- NAVIGATION (À placer AVANT create_back_button) ---
+/** @brief Change la vue active du Stack vers la page d'accueil. */
 void go_to_main(GtkWidget *w G_GNUC_UNUSED, gpointer d) { gtk_stack_set_visible_child_name(GTK_STACK(d), "main"); }
+/** @brief Change la vue active du Stack vers la page des manuels. */
 void go_to_man(GtkWidget *w G_GNUC_UNUSED, gpointer d) { gtk_stack_set_visible_child_name(GTK_STACK(d), "man"); }
+/** @brief Change la vue active du Stack vers la page de recherche web. */
 void go_to_surf(GtkWidget *w G_GNUC_UNUSED, gpointer d) { gtk_stack_set_visible_child_name(GTK_STACK(d), "surf"); }
 
 // --- FONCTIONS DE REFACTORISATION ---
+/**
+ * @brief Ajoute plusieurs widgets à un GtkBox en une seule fois.
+ * @param box Le conteneur GtkBox cible.
+ * @param ... Liste de pointeurs GtkWidget terminant par NULL.
+ */
 static void box_pack_many(GtkBox *box, ...) {
     va_list args;
     va_start(args, box);
@@ -104,12 +138,24 @@ static void box_pack_many(GtkBox *box, ...) {
     va_end(args);
 }
 
+/**
+ * @brief Crée et ajoute un bouton de menu standard au conteneur.
+ * @param box Le conteneur cible.
+ * @param label Texte affiché sur le bouton.
+ * @param callback Fonction à appeler lors du clic.
+ * @param data Données utilisateur à passer au callback.
+ */
 static void add_menu_button(GtkBox *box, const char *label, GCallback callback, gpointer data) {
     GtkWidget *btn = gtk_button_new_with_label(label);
     g_signal_connect(btn, "clicked", callback, data);
     gtk_box_pack_start(box, btn, FALSE, FALSE, 0);
 }
 
+/**
+ * @brief Crée un bouton "Retour" configuré pour revenir à la page principale.
+ * @param app Pointeur vers la structure des widgets.
+ * @return Un pointeur vers le nouveau GtkWidget bouton.
+ */
 static GtkWidget* create_back_button(AppWidgets *app) {
     GtkWidget *btn = gtk_button_new_with_label("⬅  Retour");
     // Maintenant, go_to_main est connu du compilateur
@@ -118,6 +164,10 @@ static GtkWidget* create_back_button(AppWidgets *app) {
 }
 
 // --- MANUELS ---
+/**
+ * @brief Ouvre une nouvelle fenêtre affichant le contenu d'une page de manuel.
+ * @param page Nom de la page de manuel (ex: "grep").
+ */
 void show_man_internal(const char *page) {
     GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(win), page);
@@ -140,10 +190,18 @@ void show_man_internal(const char *page) {
     gtk_widget_show_all(win);
 }
 
+/**
+ * @brief Callback appelé lors de la sélection d'une page de manuel dans la liste.
+ */
 void on_man_selected(GtkButton *btn G_GNUC_UNUSED, gpointer data) {
     show_man_internal((const char *)data);
 }
 
+/**
+ * @brief Exécute la recherche de manuels via 'man -k'.
+ * Cette fonction est appelée après un court délai pour éviter de surcharger le système.
+ * @return Toujours FALSE pour arrêter le timer GSource.
+ */
 static gboolean perform_man_search(gpointer data) {
     AppWidgets *app = (AppWidgets *)data;
     const char *text = gtk_entry_get_text(GTK_ENTRY(app->man_entry));
@@ -176,6 +234,10 @@ static gboolean perform_man_search(gpointer data) {
     return FALSE;
 }
 
+/**
+ * @brief Gère l'événement de changement de texte dans le champ de recherche man.
+ * Initialise ou réinitialise le délai d'attente avant de lancer la recherche.
+ */
 void on_man_search_changed(GtkSearchEntry *e G_GNUC_UNUSED, gpointer d) {
     AppWidgets *app = (AppWidgets *)d;
     if (app->search_timeout_id != 0) g_source_remove(app->search_timeout_id);
@@ -183,6 +245,10 @@ void on_man_search_changed(GtkSearchEntry *e G_GNUC_UNUSED, gpointer d) {
 }
 
 // --- ACTIONS ---
+/**
+ * @brief Exécute une recherche Surfraw avec le moteur et la requête sélectionnés.
+ * Ferme l'application après le lancement.
+ */
 void on_surfraw_exec(GtkWidget *w G_GNUC_UNUSED, gpointer data) {
     AppWidgets *app = (AppWidgets *)data;
     char *engine = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(app->surf_combo));
@@ -196,11 +262,17 @@ void on_surfraw_exec(GtkWidget *w G_GNUC_UNUSED, gpointer data) {
     g_free(engine);
 }
 
+/**
+ * @brief Lance le script externe de rapport système.
+ */
 void launch_syslog(GtkWidget *w G_GNUC_UNUSED, gpointer d G_GNUC_UNUSED) {
     safe_spawn("/usr/local/bin/syslog_report");
     gtk_main_quit();
 }
 
+/**
+ * @brief Affiche la fenêtre contextuelle des raccourcis clavier.
+ */
 void on_shortcuts_clicked(GtkWidget *w G_GNUC_UNUSED, gpointer d G_GNUC_UNUSED) {
     GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(win), "Raccourcis");
@@ -216,6 +288,10 @@ void on_shortcuts_clicked(GtkWidget *w G_GNUC_UNUSED, gpointer d G_GNUC_UNUSED) 
 }
 
 // --- MAIN ---
+/**
+ * @brief Point d'entrée principal.
+ * Initialise GTK, construit l'interface, configure le Stack et lance la boucle principale.
+ */
 int main(int argc, char *argv[]) {
     prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
     gtk_init(&argc, &argv);
