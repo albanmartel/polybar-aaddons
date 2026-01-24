@@ -25,17 +25,21 @@ CLIP_FLAGS = -lclipboard
 
 # --- Détection Automatique ---
 SRCS = $(wildcard *.c)
+
+# 1. On identifie ceux qui utilisent GTK (qu'ils aient libclipboard ou non)
 SRCS_GTK = $(shell grep -l "#include <gtk/gtk.h>" $(SRCS))
-SRCS_SIMPLE = $(shell grep -L "#include <gtk/gtk.h>" $(SRCS))
-SRCS_CLIP = $(shell grep -l "#include <libclipboard.h>" $(SRCS))
-
 PROGS_GTK = $(SRCS_GTK:.c=)
+
+# 2. On identifie ceux qui utilisent libclipboard MAIS qui ne sont pas déjà dans GTK
+SRCS_CLIP_ALL = $(shell grep -l "#include <libclipboard.h>" $(SRCS))
+PROGS_CLIP = $(filter-out $(PROGS_GTK), $(SRCS_CLIP_ALL:.c=))
+
+# 3. On identifie les fichiers simples (ni GTK, ni CLIP)
+SRCS_SIMPLE = $(shell grep -L "#include <gtk/gtk.h>\|#include <libclipboard.h>" $(SRCS))
 PROGS_SIMPLE = $(SRCS_SIMPLE:.c=)
-PROGS_CLIP = $(SRCS_CLIP:.c=)
 
-# Mettre à jour la liste globale des programmes
-ALL_PROGS = $(PROGS_GTK) $(PROGS_CLIP) $(filter-out $(PROGS_CLIP), $(PROGS_SIMPLE))
-
+# Mettre à jour la liste globale (plus besoin de filter-out ici)
+ALL_PROGS = $(PROGS_GTK) $(PROGS_CLIP) $(PROGS_SIMPLE)
 
 # --- Aide ---
 help:
