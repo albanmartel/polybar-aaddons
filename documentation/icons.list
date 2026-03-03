@@ -1,5 +1,6 @@
 # --- INTERNET ---
 firefox:󰈹
+Firefox:󰈹
 chromium:
 thunderbird:󰇰
 claws:
@@ -30,6 +31,7 @@ uxterm:
 yakuake:
 glade:
 cmake:
+gkhal:
 
 # --- BUREAUTIQUE ---
 libreoffice:󰏆
@@ -48,6 +50,7 @@ krita:
 shotwell:󰋩
 gthumb:󰋩
 viewnior:󰋩
+lximage: 󰋩
 vlc:󰕼
 mpv:󰕼
 audacity:󰎆
@@ -56,6 +59,10 @@ juk:󰎈
 kamoso:󰄀
 spectacle:󰄀
 flameshot:󰄀
+xsane:󰚫
+#scrcpy:
+scrcpy:
+
 
 # --- SYSTÈME & FICHIERS ---
 thunar:󰉋
@@ -70,6 +77,10 @@ lxqt-config:
 virt-manager:󰐊
 timeshift:󰁯
 gparted:󰆟
+pamac-manager: 󰆧
+powermenu: 
+help_center: 
+gdesktop: 󰇄
 
 # --- JEUX ---
 chess:󰄭
@@ -82,3 +93,6 @@ calc:󰪚
 mail:
 setting:
 camera:󰄀
+
+# --- UTILITAIRES ---
+gnote: 
