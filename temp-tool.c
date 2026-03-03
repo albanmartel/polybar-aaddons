@@ -3,40 +3,58 @@
 #include <sys/prctl.h>
 
 // --- NOM PROGRAMME ---
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/prctl.h>
+#include <string.h>
+#include <unistd.h>
+
 #define PROGRAMME_NAME "temp-tool"
 
 int main() {
-	prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
-    // Sur la plupart des systèmes, thermal_zone0 est le CPU
-    FILE *fp = fopen("/sys/class/thermal/thermal_zone0/temp", "r");
+    prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
+    FILE *fp = NULL;
+    char path[256];
+    int temp_raw = 0;
+
+    // --- STRATÉGIE 1 : Le standard ARM / ACPI (Thermal Zones) ---
+    // On boucle sur les 3 premières zones, car sur ARM, le CPU bouge souvent.
+    for (int i = 0; i < 3; i++) {
+        sprintf(path, "/sys/class/thermal/thermal_zone%d/temp", i);
+        fp = fopen(path, "r");
+        if (fp) {
+            if (fscanf(fp, "%d", &temp_raw) == 1 && temp_raw > 0) {
+                fclose(fp);
+                goto found; // On a trouvé une valeur cohérente
+            }
+            fclose(fp);
+        }
+    }
+
+    // --- STRATÉGIE 2 : Le standard x86 (hwmon pour AMD/Intel) ---
+    for (int i = 0; i < 5; i++) {
+        sprintf(path, "/sys/class/hwmon/hwmon%d/temp1_input", i);
+        fp = fopen(path, "r");
+        if (fp) {
+            if (fscanf(fp, "%d", &temp_raw) == 1) {
+                fclose(fp);
+                goto found;
+            }
+            fclose(fp);
+        }
+    }
+
+    // Si on arrive ici, rien n'a été trouvé
+    printf(" --°C\n");
+    return 1;
+
+found:
+    {
+        int temp = temp_raw / 1000;
+        if (temp > 99) temp = 99;
+        if (temp < 0) temp = 0;
+        printf(" %02d°C\n", temp);
+    }
     
-    if (fp == NULL) {
-        // Si zone0 n'existe pas, on tente zone1 (souvent le cas sur certains laptops)
-        fp = fopen("/sys/class/thermal/thermal_zone1/temp", "r");
-    }
-
-    if (fp == NULL) {
-        printf(" --°C\n");
-        return 1;
-    }
-
-    int temp_raw;
-    if (fscanf(fp, "%d", &temp_raw) != 1) {
-        printf(" ??°C\n");
-        fclose(fp);
-        return 1;
-    }
-    fclose(fp);
-
-    // La valeur est en millidegrés (ex: 45000 pour 45°C)
-    int temp = temp_raw / 1000;
-
-    // Sécurité pour l'affichage : on bloque à 99 pour rester sur 2 chiffres
-    if (temp > 99) temp = 99;
-    if (temp < 0) temp = 0;
-
-    // Format %02d : affiche toujours 2 chiffres (ex: 08°C, 42°C)
-    printf(" %02d°C\n", temp);
-
     return 0;
 }

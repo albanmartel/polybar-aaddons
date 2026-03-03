@@ -93,3 +93,6 @@ dkms.conf
 *.rpm
 *.pkg
 *.dmg
+
+.cache
+compile_commands.json

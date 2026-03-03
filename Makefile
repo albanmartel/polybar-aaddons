@@ -22,24 +22,29 @@ RESET = \033[0m
 GTK_FLAGS = $(shell pkg-config --cflags --libs gtk+-3.0)
 # --- DRAPEAU DE DECTION LIBCLIPBOARD ---
 CLIP_FLAGS = -lclipboard
+# --- DRAPEAU DE DECTION ALSA ---
+ALSA_FLAGS = -lasound
 
 # --- Détection Automatique ---
 SRCS = $(wildcard *.c)
 
-# 1. On identifie ceux qui utilisent GTK (qu'ils aient libclipboard ou non)
+# 1. GTK
 SRCS_GTK = $(shell grep -l "#include <gtk/gtk.h>" $(SRCS))
 PROGS_GTK = $(SRCS_GTK:.c=)
 
-# 2. On identifie ceux qui utilisent libclipboard MAIS qui ne sont pas déjà dans GTK
+# 2. Libclipboard
 SRCS_CLIP_ALL = $(shell grep -l "#include <libclipboard.h>" $(SRCS))
 PROGS_CLIP = $(filter-out $(PROGS_GTK), $(SRCS_CLIP_ALL:.c=))
 
-# 3. On identifie les fichiers simples (ni GTK, ni CLIP)
-SRCS_SIMPLE = $(shell grep -L "#include <gtk/gtk.h>\|#include <libclipboard.h>" $(SRCS))
+# 3. ALSA (Nouveau)
+SRCS_ALSA = $(shell grep -l "#include <alsa/asoundlib.h>" $(SRCS))
+PROGS_ALSA = $(SRCS_ALSA:.c=)
+
+# 4. Fichiers simples (On filtre tout le reste)
+SRCS_SIMPLE = $(shell grep -L "#include <gtk/gtk.h>\|#include <libclipboard.h>\|#include <alsa/asoundlib.h>" $(SRCS))
 PROGS_SIMPLE = $(SRCS_SIMPLE:.c=)
 
-# Mettre à jour la liste globale (plus besoin de filter-out ici)
-ALL_PROGS = $(PROGS_GTK) $(PROGS_CLIP) $(PROGS_SIMPLE)
+ALL_PROGS = $(PROGS_GTK) $(PROGS_CLIP) $(PROGS_ALSA) $(PROGS_SIMPLE)
 
 # --- Aide ---
 help:
@@ -111,6 +116,10 @@ $(PROGS_GTK): %: %.c
 $(PROGS_CLIP): %: %.c
 	@echo -e "$(GREEN)📋 Compilation avec libclipboard :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(CLIP_FLAGS)
+
+$(PROGS_ALSA): %: %.c
+	@echo -e "$(CYAN)🔊 Compilation ALSA :$(RESET) $<"
+	$(CC) $(CFLAGS) $< -o $@ $(ALSA_FLAGS)
 
 # --- Commande de Test ---
 test: all

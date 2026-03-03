@@ -10,11 +10,11 @@
 #include <sys/prctl.h>
 
 // --- CONFIGURATION DES CHEMINS ---
-#define PROGRAMME_NAME "launcher_firefox"
-#define SOURCE_SUBPATH "/.mozilla/firefox/Modele"
+#define PROGRAMME_NAME "firefox_plume"
+#define SOURCE_SUBPATH "/.config/mozilla/firefox/Modele"
 #define TEMP_BASE_PATH "/tmp"
 #define FIREFOX_BIN    "firefox"
-#define GTK_THEME_VAL  "Adwaita:dark"
+#define GTK_THEME_VAL  "Adwaita"
 #define MARGIN_MB      50
 
 // --- MESSAGES UTILISATEUR (FRANÇAIS) ---
