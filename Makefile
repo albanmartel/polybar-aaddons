@@ -34,35 +34,36 @@ ALSA_FLAGS = -lasound
 X11_FLAGS = -lX11
 
 # --- Détection Automatique ---
-SRCS = $(wildcard *.c)
+SRCS = $(wildcard src/*.c)
 
-# 1. NOUVEAU : Applications VTE (Priorité maximale car elles incluent aussi <gtk/gtk.h>)
+# CORRECTION : On extrait uniquement le nom du binaire sans le préfixe "src/"
+# 1. Applications VTE
 SRCS_VTE  = $(shell grep -l "#include <vte/vte.h>" $(SRCS) 2>/dev/null)
-PROGS_VTE = $(SRCS_VTE:.c=)
+PROGS_VTE = $(subst src/,,$(SRCS_VTE:.c=))
 
-# 2. Applications GTK Standards (On retire les programmes VTE pour éviter les doublons)
+# 2. Applications GTK Standards
 SRCS_GTK_ALL = $(shell grep -l "#include <gtk/gtk.h>" $(SRCS) 2>/dev/null)
-PROGS_GTK     = $(filter-out $(PROGS_VTE), $(SRCS_GTK_ALL:.c=))
+PROGS_GTK     = $(filter-out $(PROGS_VTE), $(subst src/,,$(SRCS_GTK_ALL:.c=)))
 
 # 3. Applications X11
 SRCS_X11_ALL = $(shell grep -l "#include <X11/Xlib.h>" $(SRCS) 2>/dev/null)
-PROGS_X11     = $(filter-out $(PROGS_VTE) $(PROGS_GTK), $(SRCS_X11_ALL:.c=))
+PROGS_X11     = $(filter-out $(PROGS_VTE) $(PROGS_GTK), $(subst src/,,$(SRCS_X11_ALL:.c=)))
 
 # 4. Applications ALSA
 SRCS_ALSA_ALL = $(shell grep -l "#include <alsa/asoundlib.h>" $(SRCS) 2>/dev/null)
-PROGS_ALSA     = $(filter-out $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11), $(SRCS_ALSA_ALL:.c=))
+PROGS_ALSA     = $(filter-out $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11), $(subst src/,,$(SRCS_ALSA_ALL:.c=)))
 
 # 5. Applications Libclipboard
 SRCS_CLIP_ALL = $(shell grep -l "#include <libclipboard.h>" $(SRCS) 2>/dev/null)
-PROGS_CLIP     = $(filter-out $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA), $(SRCS_CLIP_ALL:.c=))
+PROGS_CLIP     = $(filter-out $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA), $(subst src/,,$(SRCS_CLIP_ALL:.c=)))
 
 # 6. Applications GLib Seules
 SRCS_GLIB_ALL = $(shell grep -l "#include <glib.h>" $(SRCS) 2>/dev/null)
-PROGS_GLIB    = $(filter-out $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS_CLIP), $(SRCS_GLIB_ALL:.c=))
+PROGS_GLIB    = $(filter-out $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS_CLIP), $(subst src/,,$(SRCS_GLIB_ALL:.c=)))
 
 # 7. Fichiers simples (Tout ce qui reste)
 ALL_SPECIAL_PROGS = $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS_CLIP) $(PROGS_GLIB)
-ALL_TOTAL_PROGS   = $(SRCS:.c=)
+ALL_TOTAL_PROGS   = $(subst src/,,$(SRCS:.c=))
 PROGS_SIMPLE      = $(filter-out $(ALL_SPECIAL_PROGS), $(ALL_TOTAL_PROGS))
 
 # Liste finale propre, triée et garantie sans aucun doublon
@@ -116,7 +117,7 @@ rebuild: clean all
 # --- Sauvegarde ---
 backup: clean
 	@echo "📦 Création de l'archive $(BACKUP_NAME)..."
-	tar -czf $(BACKUP_NAME) *.c Makefile
+	tar -czf $(BACKUP_NAME) src/ Makefile
 	@echo "✅ Sauvegarde terminée."
 
 # --- Journalisation ---
@@ -127,31 +128,32 @@ logs:
 # --- Règles de Compilation ---
 all: check-libclip check-deps $(ALL_PROGS)
 
-$(PROGS_SIMPLE): %: %.c
+# CORRECTION : La règle dit "Prend la cible '%' (ex: net-doctor) et cherche sa source dans 'src/%.c' (ex: src/net-doctor.c)"
+$(PROGS_SIMPLE): %: src/%.c
 	@echo -e "$(CYAN)🛠️  Compilation simple :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@
 
-$(PROGS_VTE): %: %.c
+$(PROGS_VTE): %: src/%.c
 	@echo -e "$(BLUE)🖥️  Compilation GTK+ avec Terminal VTE :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(VTE_FLAGS)
 
-$(PROGS_GTK): %: %.c
+$(PROGS_GTK): %: src/%.c
 	@echo -e "$(BLUE)🎨 Compilation GTK+ :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(GTK_FLAGS)
 
-$(PROGS_CLIP): %: %.c
+$(PROGS_CLIP): %: src/%.c
 	@echo -e "$(GREEN)📋 Compilation avec libclipboard :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(CLIP_FLAGS)
 
-$(PROGS_ALSA): %: %.c
+$(PROGS_ALSA): %: src/%.c
 	@echo -e "$(CYAN)🔊 Compilation ALSA :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(ALSA_FLAGS)
 
-$(PROGS_X11): %: %.c
+$(PROGS_X11): %: src/%.c
 	@echo -e "$(CYAN)🖥️  Compilation X11 :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(X11_FLAGS)
 
-$(PROGS_GLIB): %: %.c
+$(PROGS_GLIB): %: src/%.c
 	@echo -e "$(BLUE)⚙️  Compilation GLib seule :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(GLIB_FLAGS)
 
@@ -168,7 +170,6 @@ test: all
 
 # --- Gestion des Raccourcis Desktop ---
 
-# 1. Création locale (sans sudo)
 desktop:
 	@mkdir -p shortcuts
 	@for prog in $(PROGS_GTK); do \
@@ -180,7 +181,6 @@ desktop:
 		echo "Categories=System;Utility;" >> shortcuts/$$prog.desktop; \
 	done
 
-# 2. Installation système (un seul sudo)
 desktop-install: desktop
 	@echo -e "$(BLUE)🚀 Installation système des raccourcis...$(RESET)"
 	sudo cp shortcuts/*.desktop $(DESKTOP_DIR)/
