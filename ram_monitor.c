@@ -1,6 +1,7 @@
+#include <assert.h>
 #include <gtk/gtk.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
 
@@ -8,124 +9,157 @@
 #define PROGRAMME_NAME "ram-monitor"
 
 typedef struct {
-    char name[128];
-    double memory;
+  char name[128];
+  double memory;
 } ProcessInfo;
 
 GtkTextBuffer *buffer;
 
 // Fonction de comparaison pour le tri (du plus grand au plus petit)
 int compare_proc(const void *a, const void *b) {
-    const ProcessInfo *procA = (const ProcessInfo *)a;
-    const ProcessInfo *procB = (const ProcessInfo *)b;
-    if (procB->memory > procA->memory) return 1;
-    if (procB->memory < procA->memory) return -1;
-    return 0;
+  // Vérifications actives uniquement en mode Debug
+  assert(a != NULL);
+  assert(b != NULL);
+
+  const ProcessInfo *procA = (const ProcessInfo *)a;
+  const ProcessInfo *procB = (const ProcessInfo *)b;
+
+  if (procB->memory > procA->memory)
+    return 1;
+  if (procB->memory < procA->memory)
+    return -1;
+  return 0;
 }
 
 // Fonction pour générer le rapport trié
-char* get_sorted_ram_report() {
-    ProcessInfo procs[1024];
-    int count = 0;
-    double total = 0;
+char *get_sorted_ram_report() {
+  ProcessInfo procs[1024];
+  int count = 0;
+  double total = 0;
 
-    FILE *fp = popen("ps -eo comm,rss --no-headers", "r");
-    if (!fp) return g_strdup("Erreur d'exécution de ps");
+  // Astuce : On met RSS en premier. Comme RSS n'a jamais d'espace,
+  // le reste de la ligne (le nom) peut contenir des espaces sans bloquer le
+  // sscanf.
+  FILE *fp = popen("ps -eo rss,comm --no-headers", "r");
+  if (!fp)
+    return g_strdup("Erreur d'exécution de ps");
 
-    char line[256];
-    while (fgets(line, sizeof(line), fp) && count < 1024) {
-        char name_tmp[128];
-        long rss;
-        if (sscanf(line, "%127s %ld", name_tmp, &rss) == 2) {
-            if (rss > 500) { 
-                // Utilisation de g_strlcpy pour une copie sécurisée avec \0 garanti
-                g_strlcpy(procs[count].name, name_tmp, sizeof(procs[count].name));
-                procs[count].memory = (double)rss / 1024.0;
-                total += procs[count].memory;
-                count++;
-            }
-        }
+  char line[256];
+  while (fgets(line, sizeof(line), fp) && count < 1024) {
+    char name_tmp[128];
+    long rss;
+
+    // %127[^\n] permet de lire tout le reste de la ligne, espaces inclus
+    if (sscanf(line, "%ld %127[^\n]", &rss, name_tmp) == 2) {
+      if (rss > 500) {
+        g_strlcpy(procs[count].name, name_tmp, sizeof(procs[count].name));
+        procs[count].memory = (double)rss / 1024.0;
+        total += procs[count].memory;
+        count++;
+      }
     }
-    pclose(fp);
+  }
+  pclose(fp);
 
-    qsort(procs, count, sizeof(ProcessInfo), compare_proc);
+  // Sécurité si aucun processus n'a été capturé
+  if (count == 0) {
+    return g_strdup(
+        "Aucun processus actif trouvé (ou utilisation RAM trop faible).");
+  }
 
-    // GString est idéal pour construire des chaînes de taille variable sans strcat
-    GString *report = g_string_new(NULL);
-    g_string_append_printf(report, "  %-25s %s\n", "APPLICATION", "UTILISATION");
-    g_string_append(report, "  ==========================================\n\n");
+  // qsort est maintenant sûr à 100%
+  qsort(procs, count, sizeof(ProcessInfo), compare_proc);
 
-    for (int i = 0; i < count; i++) {
-        g_string_append_printf(report, "  %-25s %8.2f Mo\n", procs[i].name, procs[i].memory);
-    }
+  // GString est idéal pour construire des chaînes de taille variable sans
+  // strcat
+  GString *report = g_string_new(NULL);
+  g_string_append_printf(report, "  %-25s %s\n", "APPLICATION", "UTILISATION");
+  g_string_append(report, "  ==========================================\n\n");
 
-    g_string_append_printf(report, "\n  ==========================================\n"
-                                   "  TOTAL RAM : %.2f Mo (%.2f Go)\n", total, total/1024.0);
-    
-    return g_string_free(report, FALSE);
+  for (int i = 0; i < count; i++) {
+    g_string_append_printf(report, "  %-25s %8.2f Mo\n", procs[i].name,
+                           procs[i].memory);
+  }
+
+  g_string_append_printf(report,
+                         "\n  ==========================================\n"
+                         "  TOTAL RAM : %.2f Mo (%.2f Go)\n",
+                         total, total / 1024.0);
+
+  // Libère la structure GString mais retourne la chaîne brute (char *)
+  // C'est à l'appelant de cette fonction de faire un g_free() sur le résultat
+  return g_string_free(report, FALSE);
 }
 
 void on_refresh(GtkWidget *widget G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED) {
-    char *report = get_sorted_ram_report();
-    gtk_text_buffer_set_text(buffer, report, -1);
-    g_free(report);
+  char *report = get_sorted_ram_report();
+  gtk_text_buffer_set_text(buffer, report, -1);
+  g_free(report);
 }
 
 void on_save(GtkWidget *widget G_GNUC_UNUSED, gpointer window) {
-    GtkWidget *dialog = gtk_file_chooser_dialog_new("Enregistrer le rapport", GTK_WINDOW(window),
-                         GTK_FILE_CHOOSER_ACTION_SAVE, "_Annuler", GTK_RESPONSE_CANCEL, "_Sauvegarder", GTK_RESPONSE_ACCEPT, NULL);
-    
-    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), "conso_ram.txt");
-    gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), TRUE);
+  // Vérifie si window n'est pas NULL ET est bien une instance de GtkWindow
+  // Si le test échoue, un warning s'affiche dans la console et la fonction
+  // s'arrête immédiatement.
+  g_return_if_fail(GTK_IS_WINDOW(window));
 
-    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
-        char *filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
-        GtkTextIter start, end;
-        gtk_text_buffer_get_bounds(buffer, &start, &end);
-        char *text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
-        g_file_set_contents(filename, text, -1, NULL);
-        g_free(filename);
-        g_free(text);
-    }
-    gtk_widget_destroy(dialog);
+  GtkWidget *dialog = gtk_file_chooser_dialog_new(
+      "Enregistrer le rapport", GTK_WINDOW(window),
+      GTK_FILE_CHOOSER_ACTION_SAVE, "_Annuler", GTK_RESPONSE_CANCEL,
+      "_Sauvegarder", GTK_RESPONSE_ACCEPT, NULL);
+
+  gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), "conso_ram.txt");
+  gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog),
+                                                 TRUE);
+
+  if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+    char *filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    char *text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+    g_file_set_contents(filename, text, -1, NULL);
+    g_free(filename);
+    g_free(text);
+  }
+  gtk_widget_destroy(dialog);
 }
 
 int main(int argc, char *argv[]) {
-    prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
-    gtk_init(&argc, &argv);
+  prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
+  gtk_init(&argc, &argv);
 
-    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), "ArchMonitor RAM");
-    gtk_window_set_default_size(GTK_WINDOW(window), 500, 650);
-    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+  GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  gtk_window_set_title(GTK_WINDOW(window), "ArchMonitor RAM");
+  gtk_window_set_default_size(GTK_WINDOW(window), 500, 650);
+  g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_container_set_border_width(GTK_CONTAINER(vbox), 15);
-    gtk_container_add(GTK_CONTAINER(window), vbox);
+  GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+  gtk_container_set_border_width(GTK_CONTAINER(vbox), 15);
+  gtk_container_add(GTK_CONTAINER(window), vbox);
 
-    GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
-    GtkWidget *text_view = gtk_text_view_new();
-    gtk_text_view_set_monospace(GTK_TEXT_VIEW(text_view), TRUE);
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(text_view), FALSE);
-    buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
-    
-    gtk_container_add(GTK_CONTAINER(scrolled), text_view);
-    gtk_box_pack_start(GTK_BOX(vbox), scrolled, TRUE, TRUE, 0);
+  GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
+  GtkWidget *text_view = gtk_text_view_new();
+  gtk_text_view_set_monospace(GTK_TEXT_VIEW(text_view), TRUE);
+  gtk_text_view_set_editable(GTK_TEXT_VIEW(text_view), FALSE);
+  buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
 
-    GtkWidget *bbox = gtk_button_box_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_button_box_set_layout(GTK_BUTTON_BOX(bbox), GTK_BUTTONBOX_END);
-    gtk_box_pack_start(GTK_BOX(vbox), bbox, FALSE, FALSE, 0);
+  gtk_container_add(GTK_CONTAINER(scrolled), text_view);
+  gtk_box_pack_start(GTK_BOX(vbox), scrolled, TRUE, TRUE, 0);
 
-    GtkWidget *btn_ref = gtk_button_new_with_label("🔄 Actualiser");
-    g_signal_connect(btn_ref, "clicked", G_CALLBACK(on_refresh), NULL);
-    gtk_container_add(GTK_CONTAINER(bbox), btn_ref);
+  GtkWidget *bbox = gtk_button_box_new(GTK_ORIENTATION_HORIZONTAL);
+  gtk_button_box_set_layout(GTK_BUTTON_BOX(bbox), GTK_BUTTONBOX_END);
+  gtk_box_pack_start(GTK_BOX(vbox), bbox, FALSE, FALSE, 0);
 
-    GtkWidget *btn_sav = gtk_button_new_with_label("💾 Enregistrer");
-    g_signal_connect(btn_sav, "clicked", G_CALLBACK(on_save), window);
-    gtk_container_add(GTK_CONTAINER(bbox), btn_sav);
+  GtkWidget *btn_ref = gtk_button_new_with_label("🔄 Actualiser");
+  g_signal_connect(btn_ref, "clicked", G_CALLBACK(on_refresh), NULL);
+  gtk_container_add(GTK_CONTAINER(bbox), btn_ref);
 
-    on_refresh(NULL, NULL); 
-    gtk_widget_show_all(window);
-    gtk_main();
-    return 0;
+  GtkWidget *btn_sav = gtk_button_new_with_label("💾 Enregistrer");
+  g_signal_connect(btn_sav, "clicked", G_CALLBACK(on_save), window);
+  gtk_container_add(GTK_CONTAINER(bbox), btn_sav);
+
+  on_refresh(NULL, NULL);
+  gtk_widget_show_all(window);
+  gtk_main();
+  return 0;
 }

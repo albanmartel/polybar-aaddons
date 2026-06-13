@@ -1,41 +1,67 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/prctl.h>
 
-// --- NOM PROGRAMME ---
 #define PROGRAMME_NAME "ram-tool"
 
 int main() {
-	prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
-    FILE *fp = fopen("/proc/meminfo", "r");
-    if (fp == NULL) {
-        printf("  --.-G");
-        return 1;
+  prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
+
+  FILE *fp = fopen("/proc/meminfo", "r");
+  if (fp == NULL) {
+    printf(" --.-G\n");
+    return 1;
+  }
+
+  // Initialisation par sécurité
+  unsigned long total = 0;
+  unsigned long available = 0;
+  char line[256];
+  int found = 0;
+
+  // Lecture optimisée et robuste
+  while (fgets(line, sizeof(line), fp)) {
+    if (strncmp(line, "MemTotal:", 9) == 0) {
+      sscanf(line + 9, "%lu", &total);
+      found++;
+    } else if (strncmp(line, "MemAvailable:", 13) == 0) {
+      sscanf(line + 13, "%lu", &available);
+      found++;
     }
 
-    unsigned long total, available;
-    char line[256];
-    int found = 0;
+    if (found == 2)
+      break;
+  }
 
-    // On parcourt meminfo pour extraire MemTotal et MemAvailable
-    while (fgets(line, sizeof(line), fp)) {
-        if (sscanf(line, "MemTotal: %lu kB", &total) == 1) found++;
-        if (sscanf(line, "MemAvailable: %lu kB", &available) == 1) found++;
-        if (found == 2) break;
-    }
+  // --- GESTION STRICTE DES ERREURS DE LECTURE ---
+  if (ferror(fp)) {
+    // Une erreur de lecture s'est produite au niveau du système de
+    // fichier/noyau
     fclose(fp);
+    printf(" --.-G\n");
+    return 1;
+  }
 
-    // Calcul de la RAM utilisée en Go
-    double used_gb = (double)(total - available) / (1024.0 * 1024.0);
+  fclose(fp);
 
-    // Sécurité pour ne pas dépasser 99.9G (format fixe)
-    if (used_gb > 99.9) used_gb = 99.9;
+  // Si MemAvailable n'a pas été trouvé (vieux noyau ou environnement restreint)
+  if (found < 2 || total == 0) {
+    printf(" --.-G\n");
+    return 1;
+  }
 
-    // Format %04.1f :
-    // - 0 : remplit avec un zéro au lieu d'un espace
-    // - 4 : largeur totale de 4 caractères (ex: 04.2)
-    // - .1 : un chiffre après la virgule
-    printf("  %04.1fG\n", used_gb);
+  // Calcul de la RAM utilisée en Go
+  double used_gb = (double)(total - available) / (1024.0 * 1024.0);
 
-    return 0;
+  // Sécurité pour le format
+  if (used_gb > 99.9)
+    used_gb = 99.9;
+  if (used_gb < 0.0)
+    used_gb = 0.0; // Au cas où available > total (rare bug noyau)
+
+  // Affichage propre
+  printf(" %04.1fG\n", used_gb);
+
+  return 0;
 }

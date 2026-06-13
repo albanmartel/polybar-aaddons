@@ -19,32 +19,47 @@ CYAN  = \033[1;36m
 RESET = \033[0m
 
 # Détection des drapeaux GTK
-GTK_FLAGS = $(shell pkg-config --cflags --libs gtk+-3.0)
+GTK_FLAGS = $(shell pkg-config --cflags --libs gtk+-3.0 gio-2.0)
+
+# --- DRAPEAU DE DÉTECTION GLIB SEUL ---
+GLIB_FLAGS = $(shell pkg-config --cflags --libs glib-2.0)
 # --- DRAPEAU DE DECTION LIBCLIPBOARD ---
 CLIP_FLAGS = -lclipboard
 # --- DRAPEAU DE DECTION ALSA ---
 ALSA_FLAGS = -lasound
+# --- DRAPEAU DE DETECTION X11 ---
+X11_FLAGS = -lX11
 
 # --- Détection Automatique ---
 SRCS = $(wildcard *.c)
 
-# 1. GTK
-SRCS_GTK = $(shell grep -l "#include <gtk/gtk.h>" $(SRCS))
+# 1. Applications GTK (Priorité absolue)
+SRCS_GTK  = $(shell grep -l "#include <gtk/gtk.h>" $(SRCS) 2>/dev/null)
 PROGS_GTK = $(SRCS_GTK:.c=)
 
-# 2. Libclipboard
-SRCS_CLIP_ALL = $(shell grep -l "#include <libclipboard.h>" $(SRCS))
-PROGS_CLIP = $(filter-out $(PROGS_GTK), $(SRCS_CLIP_ALL:.c=))
+# 2. Applications X11
+SRCS_X11_ALL = $(shell grep -l "#include <X11/Xlib.h>" $(SRCS) 2>/dev/null)
+PROGS_X11     = $(filter-out $(PROGS_GTK), $(SRCS_X11_ALL:.c=))
 
-# 3. ALSA (Nouveau)
-SRCS_ALSA = $(shell grep -l "#include <alsa/asoundlib.h>" $(SRCS))
-PROGS_ALSA = $(SRCS_ALSA:.c=)
+# 3. Applications ALSA
+SRCS_ALSA_ALL = $(shell grep -l "#include <alsa/asoundlib.h>" $(SRCS) 2>/dev/null)
+PROGS_ALSA     = $(filter-out $(PROGS_GTK) $(PROGS_X11), $(SRCS_ALSA_ALL:.c=))
 
-# 4. Fichiers simples (On filtre tout le reste)
-SRCS_SIMPLE = $(shell grep -L "#include <gtk/gtk.h>\|#include <libclipboard.h>\|#include <alsa/asoundlib.h>" $(SRCS))
-PROGS_SIMPLE = $(SRCS_SIMPLE:.c=)
+# 4. Applications Libclipboard
+SRCS_CLIP_ALL = $(shell grep -l "#include <libclipboard.h>" $(SRCS) 2>/dev/null)
+PROGS_CLIP     = $(filter-out $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA), $(SRCS_CLIP_ALL:.c=))
 
-ALL_PROGS = $(PROGS_GTK) $(PROGS_CLIP) $(PROGS_ALSA) $(PROGS_SIMPLE)
+# 5. Applications GLib Seules
+SRCS_GLIB_ALL = $(shell grep -l "#include <glib.h>" $(SRCS) 2>/dev/null)
+PROGS_GLIB    = $(filter-out $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS_CLIP), $(SRCS_GLIB_ALL:.c=))
+
+# 6. Fichiers simples (Tout ce qui reste et qui n'est STRICTEMENT dans aucune catégorie)
+ALL_SPECIAL_PROGS = $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS_CLIP) $(PROGS_GLIB)
+ALL_TOTAL_PROGS   = $(SRCS:.c=)
+PROGS_SIMPLE      = $(filter-out $(ALL_SPECIAL_PROGS), $(ALL_TOTAL_PROGS))
+
+# Liste finale propre, triée et garantie sans aucun doublon
+ALL_PROGS = $(sort $(PROGS_GTK) $(PROGS_GLIB) $(PROGS_ALSA) $(PROGS_CLIP) $(PROGS_X11) $(PROGS_SIMPLE))
 
 # --- Aide ---
 help:
@@ -121,6 +136,14 @@ $(PROGS_ALSA): %: %.c
 	@echo -e "$(CYAN)🔊 Compilation ALSA :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(ALSA_FLAGS)
 
+$(PROGS_X11): %: %.c
+	@echo -e "$(CYAN)🖥️  Compilation X11 :$(RESET) $<"
+	$(CC) $(CFLAGS) $< -o $@ $(X11_FLAGS)
+
+$(PROGS_GLIB): %: %.c
+	@echo -e "$(BLUE)⚙️  Compilation GLib seule :$(RESET) $<"
+	$(CC) $(CFLAGS) $< -o $@ $(GLIB_FLAGS)
+
 # --- Commande de Test ---
 test: all
 	@echo -e "$(GREEN)🧪 Vérification de l'intégrité...$(RESET)"
@@ -129,14 +152,13 @@ test: all
 			echo -e "✅ [READY] ./$$prog"; \
 		else \
 			echo -e "❌ [ERROR] ./$$prog manquant"; exit 1; \
-		fi \
+		fi; \
 	done
 
 # --- Gestion des Raccourcis Desktop ---
 
 # 1. Création locale (sans sudo)
 desktop:
-	@echo -e "$(CYAN)📂 Création locale des fichiers .desktop...$(RESET)"
 	@mkdir -p shortcuts
 	@for prog in $(PROGS_GTK); do \
 		echo "[Desktop Entry]" > shortcuts/$$prog.desktop; \
@@ -145,7 +167,6 @@ desktop:
 		echo "Icon=utilities-terminal" >> shortcuts/$$prog.desktop; \
 		echo "Type=Application" >> shortcuts/$$prog.desktop; \
 		echo "Categories=System;Utility;" >> shortcuts/$$prog.desktop; \
-		echo "✅ Généré : shortcuts/$$prog.desktop"; \
 	done
 
 # 2. Installation système (un seul sudo)
@@ -157,11 +178,9 @@ desktop-install: desktop
 	@echo "✅ Installation terminée."
 
 desktop-clean:
-	@echo "🧹 Nettoyage du dossier local ./shortcuts..."
 	@rm -rf shortcuts
 
 desktop-uninstall:
-	@echo -e "$(BLUE)🗑️  Suppression des raccourcis système...$(RESET)"
 	@for prog in $(PROGS_GTK); do \
 		sudo rm -f $(DESKTOP_DIR)/$$prog.desktop; \
 	done
