@@ -21,6 +21,9 @@ RESET = \033[0m
 # Détection des drapeaux GTK
 GTK_FLAGS = $(shell pkg-config --cflags --libs gtk+-3.0 gio-2.0)
 
+# --- Drapeaux spécifiques pour VTE (GTK + Terminal Embarqué) ---
+VTE_FLAGS = $(shell pkg-config --cflags --libs gtk+-3.0 vte-2.91 gio-2.0)
+
 # --- DRAPEAU DE DÉTECTION GLIB SEUL ---
 GLIB_FLAGS = $(shell pkg-config --cflags --libs glib-2.0)
 # --- DRAPEAU DE DECTION LIBCLIPBOARD ---
@@ -33,33 +36,37 @@ X11_FLAGS = -lX11
 # --- Détection Automatique ---
 SRCS = $(wildcard *.c)
 
-# 1. Applications GTK (Priorité absolue)
-SRCS_GTK  = $(shell grep -l "#include <gtk/gtk.h>" $(SRCS) 2>/dev/null)
-PROGS_GTK = $(SRCS_GTK:.c=)
+# 1. NOUVEAU : Applications VTE (Priorité maximale car elles incluent aussi <gtk/gtk.h>)
+SRCS_VTE  = $(shell grep -l "#include <vte/vte.h>" $(SRCS) 2>/dev/null)
+PROGS_VTE = $(SRCS_VTE:.c=)
 
-# 2. Applications X11
+# 2. Applications GTK Standards (On retire les programmes VTE pour éviter les doublons)
+SRCS_GTK_ALL = $(shell grep -l "#include <gtk/gtk.h>" $(SRCS) 2>/dev/null)
+PROGS_GTK     = $(filter-out $(PROGS_VTE), $(SRCS_GTK_ALL:.c=))
+
+# 3. Applications X11
 SRCS_X11_ALL = $(shell grep -l "#include <X11/Xlib.h>" $(SRCS) 2>/dev/null)
-PROGS_X11     = $(filter-out $(PROGS_GTK), $(SRCS_X11_ALL:.c=))
+PROGS_X11     = $(filter-out $(PROGS_VTE) $(PROGS_GTK), $(SRCS_X11_ALL:.c=))
 
-# 3. Applications ALSA
+# 4. Applications ALSA
 SRCS_ALSA_ALL = $(shell grep -l "#include <alsa/asoundlib.h>" $(SRCS) 2>/dev/null)
-PROGS_ALSA     = $(filter-out $(PROGS_GTK) $(PROGS_X11), $(SRCS_ALSA_ALL:.c=))
+PROGS_ALSA     = $(filter-out $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11), $(SRCS_ALSA_ALL:.c=))
 
-# 4. Applications Libclipboard
+# 5. Applications Libclipboard
 SRCS_CLIP_ALL = $(shell grep -l "#include <libclipboard.h>" $(SRCS) 2>/dev/null)
-PROGS_CLIP     = $(filter-out $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA), $(SRCS_CLIP_ALL:.c=))
+PROGS_CLIP     = $(filter-out $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA), $(SRCS_CLIP_ALL:.c=))
 
-# 5. Applications GLib Seules
+# 6. Applications GLib Seules
 SRCS_GLIB_ALL = $(shell grep -l "#include <glib.h>" $(SRCS) 2>/dev/null)
-PROGS_GLIB    = $(filter-out $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS_CLIP), $(SRCS_GLIB_ALL:.c=))
+PROGS_GLIB    = $(filter-out $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS_CLIP), $(SRCS_GLIB_ALL:.c=))
 
-# 6. Fichiers simples (Tout ce qui reste et qui n'est STRICTEMENT dans aucune catégorie)
-ALL_SPECIAL_PROGS = $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS_CLIP) $(PROGS_GLIB)
+# 7. Fichiers simples (Tout ce qui reste)
+ALL_SPECIAL_PROGS = $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS_CLIP) $(PROGS_GLIB)
 ALL_TOTAL_PROGS   = $(SRCS:.c=)
 PROGS_SIMPLE      = $(filter-out $(ALL_SPECIAL_PROGS), $(ALL_TOTAL_PROGS))
 
 # Liste finale propre, triée et garantie sans aucun doublon
-ALL_PROGS = $(sort $(PROGS_GTK) $(PROGS_GLIB) $(PROGS_ALSA) $(PROGS_CLIP) $(PROGS_X11) $(PROGS_SIMPLE))
+ALL_PROGS = $(sort $(PROGS_VTE) $(PROGS_GTK) $(PROGS_GLIB) $(PROGS_ALSA) $(PROGS_CLIP) $(PROGS_X11) $(PROGS_SIMPLE))
 
 # --- Aide ---
 help:
@@ -123,6 +130,10 @@ all: check-libclip check-deps $(ALL_PROGS)
 $(PROGS_SIMPLE): %: %.c
 	@echo -e "$(CYAN)🛠️  Compilation simple :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@
+
+$(PROGS_VTE): %: %.c
+	@echo -e "$(BLUE)🖥️  Compilation GTK+ avec Terminal VTE :$(RESET) $<"
+	$(CC) $(CFLAGS) $< -o $@ $(VTE_FLAGS)
 
 $(PROGS_GTK): %: %.c
 	@echo -e "$(BLUE)🎨 Compilation GTK+ :$(RESET) $<"
