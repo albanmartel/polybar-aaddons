@@ -2,25 +2,31 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
+#include <unistd.h>
 
 #define PROGRAMME_NAME "ram-tool"
 
-int main() {
-  prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
+/*--- FONCTION DE TRAITEMENT ET D'AFFICHAGE ---*/
+
+void print_ram_usage(void) {
+  // Vérification stricte d'accès : le fichier existe-t-il et est-il lisible ?
+  if (access("/proc/meminfo", R_OK) != 0) {
+    printf(" --.-G\n");
+    return;
+  }
 
   FILE *fp = fopen("/proc/meminfo", "r");
   if (fp == NULL) {
     printf(" --.-G\n");
-    return 1;
+    return;
   }
 
-  // Initialisation par sécurité
   unsigned long total = 0;
   unsigned long available = 0;
   char line[256];
   int found = 0;
 
-  // Lecture optimisée et robuste
+  // Lecture optimisée
   while (fgets(line, sizeof(line), fp)) {
     if (strncmp(line, "MemTotal:", 9) == 0) {
       sscanf(line + 9, "%lu", &total);
@@ -34,34 +40,41 @@ int main() {
       break;
   }
 
-  // --- GESTION STRICTE DES ERREURS DE LECTURE ---
+  // Gestion des erreurs de lecture matérielle/noyau
   if (ferror(fp)) {
-    // Une erreur de lecture s'est produite au niveau du système de
-    // fichier/noyau
     fclose(fp);
     printf(" --.-G\n");
-    return 1;
+    return;
   }
 
   fclose(fp);
 
-  // Si MemAvailable n'a pas été trouvé (vieux noyau ou environnement restreint)
+  // Validation des données récupérées
   if (found < 2 || total == 0) {
     printf(" --.-G\n");
-    return 1;
+    return;
   }
 
   // Calcul de la RAM utilisée en Go
   double used_gb = (double)(total - available) / (1024.0 * 1024.0);
 
-  // Sécurité pour le format
+  // Gardes-fous (Sécurité pour le format d'affichage)
   if (used_gb > 99.9)
     used_gb = 99.9;
   if (used_gb < 0.0)
-    used_gb = 0.0; // Au cas où available > total (rare bug noyau)
+    used_gb = 0.0;
 
-  // Affichage propre
+  // Affichage final propre
   printf(" %04.1fG\n", used_gb);
+}
+
+// --- MAIN (Épuré et minimaliste) ---
+
+int main(void) {
+  prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
+
+  // Appel de la fonction de traitement
+  print_ram_usage();
 
   return 0;
 }

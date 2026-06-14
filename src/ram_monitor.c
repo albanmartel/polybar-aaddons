@@ -124,10 +124,9 @@ void on_save(GtkWidget *widget G_GNUC_UNUSED, gpointer window) {
   gtk_widget_destroy(dialog);
 }
 
-int main(int argc, char *argv[]) {
-  prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
-  gtk_init(&argc, &argv);
+// --- FONCTION DE CRÉATION DE L'INTERFACE ---
 
+void create_monitor_window(void) {
   GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   gtk_window_set_title(GTK_WINDOW(window), "ArchMonitor RAM");
   gtk_window_set_default_size(GTK_WINDOW(window), 500, 650);
@@ -158,8 +157,23 @@ int main(int argc, char *argv[]) {
   g_signal_connect(btn_sav, "clicked", G_CALLBACK(on_save), window);
   gtk_container_add(GTK_CONTAINER(bbox), btn_sav);
 
+  // Premier chargement des données
   on_refresh(NULL, NULL);
+
+  // Affichage
   gtk_widget_show_all(window);
+}
+
+// --- MAIN (Épuré et standard) ---
+
+int main(int argc, char *argv[]) {
+  prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
+  gtk_init(&argc, &argv);
+
+  // On lance la création de la fenêtre
+  create_monitor_window();
+
+  // Boucle principale GTK
   gtk_main();
   return 0;
 }
