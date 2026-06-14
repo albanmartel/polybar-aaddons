@@ -5,7 +5,6 @@
 #include <string.h>
 #include <sys/prctl.h>
 
-// --- NOM PROGRAMME ---
 #define PROGRAMME_NAME "ram-monitor"
 
 typedef struct {
@@ -15,15 +14,10 @@ typedef struct {
 
 GtkTextBuffer *buffer;
 
-// Fonction de comparaison pour le tri (du plus grand au plus petit)
 int compare_proc(const void *a, const void *b) {
-  // Vérifications actives uniquement en mode Debug
-  assert(a != NULL);
-  assert(b != NULL);
-
+  assert(a != NULL && b != NULL);
   const ProcessInfo *procA = (const ProcessInfo *)a;
   const ProcessInfo *procB = (const ProcessInfo *)b;
-
   if (procB->memory > procA->memory)
     return 1;
   if (procB->memory < procA->memory)
@@ -31,15 +25,41 @@ int compare_proc(const void *a, const void *b) {
   return 0;
 }
 
-// Fonction pour générer le rapport trié
+// Nouvelle fonction pour obtenir le VRAI total de RAM consommée par le système
+double get_system_real_used_ram(void) {
+  FILE *fp = fopen("/proc/meminfo", "r");
+  if (!fp)
+    return 0.0;
+
+  long total = 0, free_mem = 0, buffers = 0, cached = 0, reclaimable = 0;
+  char label[64];
+  long value;
+
+  while (fscanf(fp, "%63s %ld kB", label, &value) == 2) {
+    if (strcmp(label, "MemTotal:") == 0)
+      total = value;
+    else if (strcmp(label, "MemFree:") == 0)
+      free_mem = value;
+    else if (strcmp(label, "Buffers:") == 0)
+      buffers = value;
+    else if (strcmp(label, "Cached:") == 0)
+      cached = value;
+    else if (strcmp(label, "SReclaimable:") == 0)
+      reclaimable = value;
+  }
+  fclose(fp);
+
+  // Formule officielle du noyau Linux (et de htop) pour la RAM REELLEMENT
+  // utilisée
+  long used_kb = total - free_mem - buffers - cached - reclaimable;
+  return (double)used_kb / 1024.0; // Conversion en Mo
+}
+
 char *get_sorted_ram_report() {
   ProcessInfo procs[1024];
   int count = 0;
-  double total = 0;
+  int monitor_index = -1;
 
-  // Astuce : On met RSS en premier. Comme RSS n'a jamais d'espace,
-  // le reste de la ligne (le nom) peut contenir des espaces sans bloquer le
-  // sscanf.
   FILE *fp = popen("ps -eo rss,comm --no-headers", "r");
   if (!fp)
     return g_strdup("Erreur d'exécution de ps");
@@ -49,29 +69,41 @@ char *get_sorted_ram_report() {
     char name_tmp[128];
     long rss;
 
-    // %127[^\n] permet de lire tout le reste de la ligne, espaces inclus
     if (sscanf(line, "%ld %127[^\n]", &rss, name_tmp) == 2) {
+      if (strcmp(name_tmp, "ps") == 0)
+        continue;
+
+      if (strcmp(name_tmp, PROGRAMME_NAME) == 0) {
+        double current_mem = (double)rss / 1024.0;
+        if (monitor_index == -1) {
+          g_strlcpy(procs[count].name, name_tmp, sizeof(procs[count].name));
+          procs[count].memory = current_mem;
+          monitor_index = count;
+          count++;
+        } else {
+          procs[monitor_index].memory += current_mem;
+        }
+        continue;
+      }
+
       if (rss > 500) {
         g_strlcpy(procs[count].name, name_tmp, sizeof(procs[count].name));
         procs[count].memory = (double)rss / 1024.0;
-        total += procs[count].memory;
         count++;
       }
     }
   }
   pclose(fp);
 
-  // Sécurité si aucun processus n'a été capturé
   if (count == 0) {
-    return g_strdup(
-        "Aucun processus actif trouvé (ou utilisation RAM trop faible).");
+    return g_strdup("Aucun processus actif trouvé.");
   }
 
-  // qsort est maintenant sûr à 100%
   qsort(procs, count, sizeof(ProcessInfo), compare_proc);
 
-  // GString est idéal pour construire des chaînes de taille variable sans
-  // strcat
+  // On récupère la VRAIE valeur du système (ex: 3.8 Go)
+  double real_system_total = get_system_real_used_ram();
+
   GString *report = g_string_new(NULL);
   g_string_append_printf(report, "  %-25s %s\n", "APPLICATION", "UTILISATION");
   g_string_append(report, "  ==========================================\n\n");
@@ -83,11 +115,9 @@ char *get_sorted_ram_report() {
 
   g_string_append_printf(report,
                          "\n  ==========================================\n"
-                         "  TOTAL RAM : %.2f Mo (%.2f Go)\n",
-                         total, total / 1024.0);
+                         "  VRAI TOTAL RAM : %.2f Mo (%.2f Go)\n",
+                         real_system_total, real_system_total / 1024.0);
 
-  // Libère la structure GString mais retourne la chaîne brute (char *)
-  // C'est à l'appelant de cette fonction de faire un g_free() sur le résultat
   return g_string_free(report, FALSE);
 }
 
@@ -98,11 +128,7 @@ void on_refresh(GtkWidget *widget G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED) {
 }
 
 void on_save(GtkWidget *widget G_GNUC_UNUSED, gpointer window) {
-  // Vérifie si window n'est pas NULL ET est bien une instance de GtkWindow
-  // Si le test échoue, un warning s'affiche dans la console et la fonction
-  // s'arrête immédiatement.
   g_return_if_fail(GTK_IS_WINDOW(window));
-
   GtkWidget *dialog = gtk_file_chooser_dialog_new(
       "Enregistrer le rapport", GTK_WINDOW(window),
       GTK_FILE_CHOOSER_ACTION_SAVE, "_Annuler", GTK_RESPONSE_CANCEL,
@@ -123,8 +149,6 @@ void on_save(GtkWidget *widget G_GNUC_UNUSED, gpointer window) {
   }
   gtk_widget_destroy(dialog);
 }
-
-// --- FONCTION DE CRÉATION DE L'INTERFACE ---
 
 void create_monitor_window(void) {
   GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -157,23 +181,14 @@ void create_monitor_window(void) {
   g_signal_connect(btn_sav, "clicked", G_CALLBACK(on_save), window);
   gtk_container_add(GTK_CONTAINER(bbox), btn_sav);
 
-  // Premier chargement des données
   on_refresh(NULL, NULL);
-
-  // Affichage
   gtk_widget_show_all(window);
 }
-
-// --- MAIN (Épuré et standard) ---
 
 int main(int argc, char *argv[]) {
   prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
   gtk_init(&argc, &argv);
-
-  // On lance la création de la fenêtre
   create_monitor_window();
-
-  // Boucle principale GTK
   gtk_main();
   return 0;
 }
