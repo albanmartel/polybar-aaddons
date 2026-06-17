@@ -7,6 +7,28 @@
 // --- NOM PROGRAMME ---
 #define PROGRAMME_NAME "polybar_date"
 
+/*-- Affichage formaté Polybar --*/
+/*-- Extrait du fichier config.ini-- */
+/*; --- POLICES ---
+font-0 = "Hack Nerd Font:style=Regular:size=10;2"
+font-1 = "Hack Nerd Font:style=Bold:size=11;-1"
+font-2 = "Hack Nerd Font:style=Bold:size=16;2"
+font-3 = "Hack Nerd Font:style=Bold:size=20;2"
+font-4 = "sans-serif:size=8;-4"
+font-5 = "sans-serif:size=8;8"
+*/
+// T1 correspond à font-0
+// %{T6}%s      : On écrit d'abord l'HEURE (qui sert de base fixe)
+// %%{O-%d}     : On recule du pixel-offset total de l'heure pour revenir au
+// DEBUT exact du bloc
+// %%{O(%s%d)}  : On avance (ou recule) du petit offset pour centrer la date
+// %{T5}%s      : On écrit la DATE
+
+/* T6 ==> font-5 = "sans-serif:size=8;8" */
+#define POLICE_HEURE "T6"
+/* T5 ==> font-4 = "sans-serif:size=8;-4" */
+#define POLICE_DATE "T5"
+
 // --- FONCTIONS ---
 
 /**
@@ -33,21 +55,14 @@ void imprimer_format_polybar(const char *date, const char *heure) {
   // Décalage pour la date = (Largeur Heure / 2) - (Largeur Date / 2)
   int offset_date = (total_heure_px / 1) - (total_date_px / 2);
 
-  /*-- Affichage formaté Polybar --*/
-  // %{T4}%s      : On écrit d'abord l'HEURE (qui sert de base fixe)
-  // %%{O-%d}     : On recule du pixel-offset total de l'heure pour revenir au
-  // DEBUT exact du bloc
-  // %%{O(%s%d)}  : On avance (ou recule) du petit offset pour centrer la date
-  // %{T3}%s      : On écrit la DATE
-
   if (offset_date >= 0) {
     // Si la date est plus courte que l'heure, on avance positivement
-    printf("%%{T4}%s%%{O-%d}%%{O+%d}%%{T3}%s\n", heure, total_heure_px,
-           offset_date, date);
+    printf("%%{POLICE_HEURE}%s%%{O-%d}%%{O+%d}%%{POLICE_DATE}%s\n", heure,
+           total_heure_px, offset_date, date);
   } else {
     // Si la date dépasse de l'heure, on recule un peu plus
-    printf("%%{T4}%s%%{O-%d}%%{O-%d}%%{T3}%s\n", heure, total_heure_px,
-           -offset_date, date);
+    printf("%%{POLICE_HEURE}%s%%{O-%d}%%{O-%d}%%{POLICE_DATE}%s\n", heure,
+           total_heure_px, -offset_date, date);
   }
 }
 
