@@ -1,5 +1,4 @@
 #include <ctype.h>
-#include <glib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,13 +94,9 @@ const char *get_icon(const char *class_name) {
 // --- UTILITAIRES ---
 void normalize_id(const char *raw_id, char *clean_id, size_t size) {
   // 1. VÉRIFICATION DES PARAMÈTRES
-  // - raw_id ne doit pas être NULL (sinon strncmp/lecture crash)
-  // - clean_id ne doit pas être NULL (sinon snprintf crash)
-  // - size doit être supérieure à 0 (sinon on ne peut rien écrire, pas même le
-  // '\0')
-  g_return_if_fail(raw_id != NULL);
-  g_return_if_fail(clean_id != NULL);
-  g_return_if_fail(size > 0);
+  if (raw_id == NULL || clean_id == NULL || size == 0) {
+    return;
+  }
 
   const char *p = raw_id;
   if (strncmp(p, "0x", 2) == 0)

@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <glib.h>
 #include <signal.h>
 #include <stdio.h>
@@ -6,12 +7,17 @@
 #include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define PROGRAMME_NAME "session-manager"
 
 #define PATH_WALLPAPER "~/.config/openbox/Images/IMG_20240821_104051.jpg"
 #define PATH_PICOM_CFG "~/.config/picom/picom.conf"
+#define ENV_LANG "fr_FR.UTF-8"
+#define ENV_LC_TIME "fr_FR.UTF-8"
+#define ENV_MONITOR "DP-1"
+#define POLYBAR_BAR_NAME "ma_barre"
 
 // Limites structurelles pour la sécurité
 #define MAX_ARGV_SIZE 30
@@ -21,6 +27,7 @@ pid_t polybar_pid = 0;
 
 typedef enum { CMD_EXECVP, CMD_SYSTEM, CMD_BLUETOOTH, CMD_BATTERY } CmdType;
 
+// 1. Structure de CONFIGURATION pure (100% Statique/Const)
 typedef struct {
   CmdType type;
   int delay;
@@ -28,7 +35,13 @@ typedef struct {
   const char *shell_cmd;
 } ProcessToLaunch;
 
-// --- DÉCLARATION DU TABLEAU DE PROCESSUS ---
+// 2. Structure d'INSTANCE pour le suivi de session (Modifiable)
+typedef struct {
+  pid_t pid;
+  const char *name;
+} RuntimeProcess;
+
+// --- DÉCLARATION DU TABLEAU DE CONFIGURATION (STRICTEMENT CONST) ---
 const ProcessToLaunch apps[] = {
     {CMD_EXECVP,
      0,
@@ -54,6 +67,7 @@ const ProcessToLaunch apps[] = {
      0,
      {"/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1", NULL},
      NULL},
+    {CMD_EXECVP, 0, {"/usr/local/bin/clipboard_tool", NULL}, NULL},
     {CMD_EXECVP, 0, {"picom", "--config", PATH_PICOM_CFG, NULL}, NULL},
     {CMD_EXECVP, 0, {"dunst", NULL}, NULL},
     {CMD_EXECVP, 0, {"gdesktop", NULL}, NULL},
@@ -92,10 +106,12 @@ const ProcessToLaunch apps[] = {
 
 const size_t num_apps = sizeof(apps) / sizeof(apps[0]);
 
+// --- LE REGISTRE DE SUIVI DE SESSION (Mémoire vive globale) ---
+RuntimeProcess session_pids[sizeof(apps) / sizeof(apps[0])] = {0};
+
 // --- UTILS AVEC PROGRAMMATION DÉFENSIVE ---
 
 int is_program_installed(const char *name) {
-  // Défensif : On rejette les pointeurs nuls ou chaînes vides
   if (!name || name[0] == '\0') {
     fprintf(stderr, "[Erreur] is_program_installed: argument invalide.\n");
     return 0;
@@ -110,7 +126,6 @@ int is_program_installed(const char *name) {
 }
 
 void resolve_home_path(const char *src, char *dest, size_t dest_len) {
-  // Défensif : Validation stricte des pointeurs et tailles de buffers
   if (!src || !dest || dest_len == 0) {
     fprintf(stderr,
             "[Erreur] resolve_home_path: Arguments de fonction NULL.\n");
@@ -119,16 +134,14 @@ void resolve_home_path(const char *src, char *dest, size_t dest_len) {
 
   const char *home = getenv("HOME");
   if (!home || home[0] == '\0') {
-    home = "/home/alban"; // Repli sécurisé
+    home = "/home/alban";
   }
 
   if (src[0] == '~') {
-    // Sécurisation du formattage de chaîne pour éviter les troncatures
-    // sournoises
     int written = snprintf(dest, dest_len, "%s%s", home, src + 1);
     if (written < 0 || (size_t)written >= dest_len) {
       fprintf(stderr, "[Alerte] Chemin trop long et tronqué : %s\n", src);
-      dest[0] = '\0'; // On invalide le buffer corrompu
+      dest[0] = '\0';
     }
   } else {
     strncpy(dest, src, dest_len - 1);
@@ -136,19 +149,16 @@ void resolve_home_path(const char *src, char *dest, size_t dest_len) {
   }
 }
 
-void run_bg_argv(char *const argv[]) {
-  // Défensif : Rejet immédiat si pas d'arguments ou pas de binaire
+pid_t run_bg_argv(char *const argv[]) {
   if (!argv || !argv[0]) {
     fprintf(stderr, "[Erreur] run_bg_argv: Tableau d'arguments vide.\n");
-    return;
+    return -1;
   }
 
   char *resolved_argv[MAX_ARGV_SIZE];
   char path_buffers[MAX_ARGV_SIZE][MAX_PATH_SIZE];
   int i = 0;
 
-  // Protection contre les tableaux mal terminés (sans NULL final) ou trop
-  // grands
   while (argv[i] != NULL && i < (MAX_ARGV_SIZE - 1)) {
     if (argv[i][0] == '~') {
       resolve_home_path(argv[i], path_buffers[i], sizeof(path_buffers[i]));
@@ -160,41 +170,15 @@ void run_bg_argv(char *const argv[]) {
   }
   resolved_argv[i] = NULL;
 
-  // Est-ce que le binaire nettoyé existe sur le système ?
   if (!is_program_installed(resolved_argv[0])) {
     fprintf(stderr, "[Session] Ignoré (non installé) : %s\n", resolved_argv[0]);
-    return;
+    return -1;
   }
 
   pid_t pid = fork();
   if (pid < 0) {
     perror("[Erreur critique] Fork échoué pour run_bg_argv");
-    return;
-  }
-
-  if (pid == 0) {
-    // Processus Enfant
-    if (freopen("/dev/null", "w", stdout) == NULL ||
-        freopen("/dev/null", "w", stderr) == NULL) {
-      _exit(1); // Échec de redirection, on quitte discrètement
-    }
-    execvp(resolved_argv[0], resolved_argv);
-    perror("execvp a échoué"); // Ne s'exécute que si execvp échoue
-    _exit(127);
-  }
-}
-
-void run_bg_system(const char *cmd) {
-  // Défensif : Validation paramètre
-  if (!cmd || cmd[0] == '\0') {
-    fprintf(stderr, "[Erreur] run_bg_system: Commande vide.\n");
-    return;
-  }
-
-  pid_t pid = fork();
-  if (pid < 0) {
-    perror("[Erreur critique] Fork échoué pour run_bg_system");
-    return;
+    return -1;
   }
 
   if (pid == 0) {
@@ -202,23 +186,68 @@ void run_bg_system(const char *cmd) {
         freopen("/dev/null", "w", stderr) == NULL) {
       _exit(1);
     }
-    int ret = system(cmd);
-    // Si system() échoue (-1) ou renvoie une erreur shell
-    _exit(ret == -1 ? 1 : 0);
+    execvp(resolved_argv[0], resolved_argv);
+    perror("execvp a échoué");
+    _exit(127);
+  }
+
+  return pid;
+}
+
+pid_t run_bg_system(const char *cmd) {
+  if (!cmd || cmd[0] == '\0') {
+    fprintf(stderr, "[Erreur] run_bg_system: Commande vide.\n");
+    return -1;
+  }
+
+  pid_t pid = fork();
+  if (pid < 0) {
+    perror("[Erreur critique] Fork échoué pour run_bg_system");
+    return -1;
+  }
+
+  if (pid == 0) {
+    if (freopen("/dev/null", "w", stdout) == NULL ||
+        freopen("/dev/null", "w", stderr) == NULL) {
+      _exit(1);
+    }
+    execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+    perror("[Erreur] execl a échoué");
+    _exit(127);
+  }
+
+  return pid;
+}
+
+// --- TUEUR DISTINCT (Parcours à l'envers sur la structure d'instance) ---
+void terminate_all_apps(void) {
+  printf("[Session] Fermeture ordonnée des applications...\n");
+
+  size_t i = num_apps;
+  while (i--) {
+    // Si l'application dispose d'un PID traqué dans notre structure de suivi,
+    // on la termine
+    if (session_pids[i].pid > 0) {
+      printf("[Nettoyage] Envoi SIGTERM à : %s (PID: %d)\n",
+             session_pids[i].name ? session_pids[i].name : "Commande Shell",
+             session_pids[i].pid);
+
+      kill(session_pids[i].pid, SIGTERM);
+    }
   }
 }
 
 // --- NETTOYAGE ---
 void cleanup_session() {
-  printf("[Supervisor] Polybar s'est arrêté ou un signal a été reçu. "
+  printf("[Supervisor] Signal de fermeture reçu ou Polybar arrêté. "
          "Nettoyage...\n");
 
-  // Évite les boucles infinies de signaux pendant le massacre général
   signal(SIGTERM, SIG_IGN);
   signal(SIGINT, SIG_IGN);
 
-  // Tue proprement TOUS les enfants du groupe
-  kill(0, SIGTERM);
+  terminate_all_apps();
+
+  sleep(1);
   exit(0);
 }
 
@@ -227,36 +256,37 @@ void handle_signal(int sig) {
   cleanup_session();
 }
 
-// --- MOTEUR DE SÉLECTION ---
-void spawn_process(ProcessToLaunch p) {
-  if (p.delay > 0) {
-    pid_t pid = fork();
-    if (pid < 0) {
-      perror("[Erreur] Impossible de fork pour le délai");
-      return;
-    }
-    if (pid == 0) {
-      sleep(p.delay);
-      p.delay = 0;
-      spawn_process(p); // Rappel récursif sécurisé dans l'enfant
-      _exit(0);
-    }
-    return;
+// --- CONSTRUCTEUR DISTINCT (Lit du const, retourne un pid_t) ---
+pid_t spawn_process(const ProcessToLaunch *app) {
+  if (app == NULL) {
+    fprintf(stderr, "[Erreur Critique] spawn_process: Pointeur de processus "
+                    "NULL renvoyé.\n");
+    return -1;
   }
 
-  switch (p.type) {
+  // Attente séquentielle synchrone (pas de fork temporaire)
+  if (app->delay > 0) {
+    printf(
+        "[Session] Attente de %d secondes avant de lancer l'application...\n",
+        app->delay);
+    sleep(app->delay);
+  }
+
+  pid_t launched_pid = -1;
+
+  switch (app->type) {
   case CMD_EXECVP:
-    run_bg_argv((char *const *)p.argv);
+    launched_pid = run_bg_argv((char *const *)app->argv);
     break;
 
   case CMD_SYSTEM:
-    run_bg_system(p.shell_cmd);
+    launched_pid = run_bg_system(app->shell_cmd);
     break;
 
   case CMD_BLUETOOTH:
     if (access("/sys/class/bluetooth", F_OK) == 0) {
       if (is_program_installed("blueman-applet")) {
-        run_bg_system("blueman-applet &");
+        launched_pid = run_bg_system("blueman-applet");
       }
     }
     break;
@@ -265,16 +295,23 @@ void spawn_process(ProcessToLaunch p) {
     if (access("/sys/class/power_supply/BAT0", F_OK) == 0 ||
         access("/sys/class/power_supply/BAT1", F_OK) == 0) {
       if (is_program_installed("cbatticon")) {
-        run_bg_system("cbatticon -n &");
+        launched_pid = run_bg_system("cbatticon -n");
       }
     }
     break;
 
   default:
-    fprintf(stderr,
-            "[Alerte] Type de commande inconnu détecté dans le tableau.\n");
+    fprintf(stderr, "[Alerte] Type de commande inconnu détecté.\n");
     break;
   }
+
+  if (launched_pid > 0) {
+    const char *name = app->argv[0] ? app->argv[0] : app->shell_cmd;
+    printf("[Supervisor] Application lancée avec succès : %s (PID: %d)\n", name,
+           launched_pid);
+  }
+
+  return launched_pid;
 }
 
 // --- SÉQUENCE PRINCIPALE ---
@@ -283,10 +320,10 @@ void launch_session(void) {
   resolve_home_path(PATH_WALLPAPER, wallpaper_resolved,
                     sizeof(wallpaper_resolved));
 
-  // Défensif : Vérification systématique des setenv()
-  if (setenv("LANG", "fr_FR.UTF-8", 1) != 0 ||
-      setenv("LC_TIME", "fr_FR.UTF-8", 1) != 0 ||
-      setenv("MONITOR", "DP-1", 1) != 0 ||
+  // --- CONFIGURATION CENTRALISÉE DES VARIABLES D'ENVIRONNEMENT ---
+  if (setenv("LANG", ENV_LANG, 1) != 0 ||
+      setenv("LC_TIME", ENV_LC_TIME, 1) != 0 ||
+      setenv("MONITOR", ENV_MONITOR, 1) != 0 ||
       (wallpaper_resolved[0] != '\0' &&
        setenv("WALLPAPER_PATH", wallpaper_resolved, 1) != 0)) {
     fprintf(stderr, "[Erreur] Échec de l'initialisation des variables "
@@ -309,15 +346,14 @@ void launch_session(void) {
     }
   }
 
-  // Nettoyages initiaux
-  int discard = system("pkill -9 picom 2>/dev/null") +
-                system("pkill -9 nm-applet 2>/dev/null") +
-                system("pkill -9 dunst 2>/dev/null");
-  (void)discard;
-
-  // Déroulement séquentiel sécurisé du tableau global
+  // Logique de chargement séquentiel et archivage des PIDs
   for (size_t i = 0; i < num_apps; i++) {
-    spawn_process(apps[i]);
+    pid_t pid = spawn_process(&apps[i]);
+    if (pid > 0) {
+      session_pids[i].pid = pid;
+      session_pids[i].name =
+          apps[i].argv[0] ? apps[i].argv[0] : apps[i].shell_cmd;
+    }
   }
 
   // --- SURVEILLANCE CRITIQUE DE POLYBAR ---
@@ -328,22 +364,31 @@ void launch_session(void) {
   }
 
   if (polybar_pid == 0) {
-    char *const polybar_cmd[] = {"polybar", "--reload", "ma_barre", NULL};
+    // Utilisation de la macro pour le nom de la barre ici aussi !
+    char *const polybar_cmd[] = {"polybar", "--reload", POLYBAR_BAR_NAME, NULL};
     execvp(polybar_cmd[0], polybar_cmd);
     perror("[Erreur] L'exécution de polybar a échoué");
     _exit(127);
   } else {
     int status;
-    // On attend l'arrêt du processus Polybar pivot
-    if (waitpid(polybar_pid, &status, 0) < 0) {
-      perror("waitpid interrompu anormalement");
+    while (waitpid(polybar_pid, &status, 0) < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      perror("waitpid de polybar a rencontré une erreur fatale");
+      break;
     }
     cleanup_session();
   }
 }
 
+void sigchld_handler(int sig) {
+  (void)sig;
+  while (waitpid(-1, NULL, WNOHANG) > 0)
+    ;
+}
+
 int main(void) {
-  // Changement de nom et isolation de groupe de processus
   if (prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0) < 0) {
     perror("Avertissement: Impossible de renommer le processus principal");
   }
@@ -354,7 +399,12 @@ int main(void) {
     exit(EXIT_FAILURE);
   }
 
-  // Liaison défensive des signaux fondamentaux
+  struct sigaction sa;
+  sa.sa_handler = sigchld_handler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+  sigaction(SIGCHLD, &sa, NULL);
+
   if (signal(SIGINT, handle_signal) == SIG_ERR ||
       signal(SIGTERM, handle_signal) == SIG_ERR) {
     perror("Erreur critique lors de la mise en place des gestionnaires de "

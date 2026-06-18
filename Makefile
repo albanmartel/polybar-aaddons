@@ -1,13 +1,14 @@
 # --- Configuration ---
 CC = gcc
 CFLAGS = -Wall -Wextra -O2
+DEBUG_FLAGS = -g -O0 # Nécessaire pour des rapports Valgrind précis
 DESTDIR = /usr/local/bin
 DESKTOP_DIR = /usr/share/applications
 BACKUP_NAME = backup_outils_$(shell date +%Y-%m-%d).tar.gz
 LOG_FILE = $(HOME)/log_systeme.txt
 
 # --- Dépendances ---
-DEPENDENCIES = zenity xclip wl-copy
+DEPENDENCIES = zenity xclip wl-copy valgrind
 
 # --- INDIQUE A MAKE DE COMPILER PAR DÉFAUT ---
 .DEFAULT_GOAL := all
@@ -32,6 +33,12 @@ CLIP_FLAGS = -lclipboard
 ALSA_FLAGS = -lasound
 # --- DRAPEAU DE DETECTION X11 ---
 X11_FLAGS = -lX11
+
+# --- Configuration de Valgrind ---
+VALGRIND_CMD = valgrind --leak-check=full \
+                       --show-leak-kinds=all \
+                       --track-origins=yes \
+                       --errors-for-leak-kinds=all
 
 # --- Détection Automatique ---
 SRCS = $(wildcard src/*.c)
@@ -74,21 +81,22 @@ help:
 	@echo -e "$(BLUE)🛠️  Makefile pour outils Système Alban$(RESET)"
 	@echo ""
 	@echo -e "$(GREEN)Commandes de gestion :$(RESET)"
-	@echo "  make               : Compile tous les programmes localement"
-	@echo "  make rebuild       : Nettoie et recompile tout de zéro"
-	@echo "  make test          : Vérifie si tous les binaires sont prêts"
-	@echo "  make install       : Installe les binaires dans $(DESTDIR)"
-	@echo "  make clean         : Supprime les binaires locaux et le dossier shortcuts"
-	@echo "  make uninstall     : Désinstalle binaires et raccourcis du système"
+	@echo "  make                 : Compile tous les programmes localement"
+	@echo "  make rebuild         : Nettoie et recompile tout de zéro"
+	@echo "  make test            : Vérifie si tous les binaires sont prêts"
+	@echo "  make valgrind        : Lance un test de fuite de mémoire interactif"
+	@echo "  make install         : Installe les binaires dans $(DESTDIR)"
+	@echo "  make clean           : Supprime les binaires locaux et le dossier shortcuts"
+	@echo "  make uninstall       : Désinstalle binaires et raccourcis du système"
 	@echo ""
 	@echo -e "$(GREEN)Gestion des Raccourcis Desktop :$(RESET)"
-	@echo "  make desktop       : Crée les .desktop localement (./shortcuts)"
+	@echo "  make desktop         : Crée les .desktop localement (./shortcuts)"
 	@echo "  make desktop-install : Installe les raccourcis dans le système (SUDO)"
-	@echo "  make desktop-clean : Supprime le dossier local ./shortcuts"
+	@echo "  make desktop-clean   : Supprime le dossier local ./shortcuts"
 	@echo ""
 	@echo -e "$(GREEN)Commandes utilitaires :$(RESET)"
-	@echo "  make backup        : Archive le code source (.tar.gz)"
-	@echo "  make logs          : Affiche les 10 dernières lignes du journal"
+	@echo "  make backup          : Archive le code source (.tar.gz)"
+	@echo "  make logs            : Affiche les 10 dernières lignes du journal"
 	@echo ""
 	@echo -e "$(CYAN)Programmes détectés :$(RESET) [$(ALL_PROGS)]"
 
@@ -157,7 +165,7 @@ $(PROGS_GLIB): %: src/%.c
 	@echo -e "$(BLUE)⚙️  Compilation GLib seule :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(GLIB_FLAGS)
 
-# --- Commande de Test ---
+# --- Commande de Test Standard ---
 test: all
 	@echo -e "$(GREEN)🧪 Vérification de l'intégrité...$(RESET)"
 	@for prog in $(ALL_PROGS); do \
@@ -167,6 +175,25 @@ test: all
 			echo -e "❌ [ERROR] ./$$prog manquant"; exit 1; \
 		fi; \
 	done
+
+# --- Analyse interactive de fuite de mémoire (Valgrind) ---
+valgrind: check-deps
+	@echo -e "$(BLUE)🕵️  Menu de test Valgrind$(RESET)"
+	@echo -e "$(CYAN)Programmes disponibles :$(RESET) $(ALL_PROGS)"
+	@echo -n "Entrez le nom du programme à analyser : " && read prog; \
+	if [ -z "$$prog" ] || [ ! -f "src/$$prog.c" ]; then \
+		echo -e "$(RED)❌ Erreur : Le programme '$$prog' n'existe pas dans le dossier src/.$(RESET)"; \
+		exit 1; \
+	fi; \
+	echo -e "$(CYAN)🔄 Recompilation temporaire de $$prog avec les drapeaux de débogage...$(RESET)"; \
+	rm -f ./$$prog; \
+	$(MAKE) DEBUG="$(DEBUG_FLAGS)" ./$$prog || exit 1; \
+	echo -e "$(GREEN)🚀 Lancement de Valgrind sur ./$$prog...$(RESET)"; \
+	echo -e "$(BLUE)📝 Le rapport sera écrit dans : valgrind_$$prog.log$(RESET)"; \
+	$(VALGRIND_CMD) --log-file=valgrind_$$prog.log ./$$prog; \
+	echo -e "$(GREEN)🏁 Test terminé. Restauration de la compilation classique...$(RESET)"; \
+	rm -f ./$$prog; \
+	$(MAKE) ./$$prog
 
 # --- Gestion des Raccourcis Desktop ---
 
