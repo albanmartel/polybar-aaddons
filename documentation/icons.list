@@ -2,7 +2,7 @@
 firefox:󰈹
 Firefox:󰈹
 chromium:
-thunderbird:󰇰
+thunderbird:
 claws:
 geary:
 falkon:󱄽
@@ -23,7 +23,7 @@ nvim:
 konsole:
 kitty:
 alacritty:
-qterminal:
+qterminal:
 lxterminal:
 foot:
 xterm:
@@ -34,9 +34,9 @@ cmake:
 gkhal:
 
 # --- BUREAUTIQUE ---
-libreoffice:󰏆
+libreoffice:
 abiword:󰏆
-okular:
+okular:
 zathura:
 evince:
 calibre:󰂱

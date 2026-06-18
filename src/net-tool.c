@@ -38,9 +38,7 @@ void get_active_interface(char *iface, size_t max_len) {
 
     // sscanf avec "%31s" pour éviter d'exploser le tableau temporaire 'itf'
     if (sscanf(line, "%31s %x", itf, &dest) == 2 && dest == 0) {
-      // 2. Sécurité : On utilise g_strlcpy ou strncpy pour éviter le Buffer
-      // Overflow g_strlcpy (de GLib) ou strncpy garantit qu'on ne dépasse pas
-      // max_len
+      // 2. Sécurité : On utilise strncpy pour éviter le Buffer Overflow
       strncpy(iface, itf, max_len - 1);
       iface[max_len - 1] =
           '\0'; // Sécurité pour s'assurer que la chaîne se termine par \0
@@ -63,22 +61,69 @@ NetBytes get_bytes(const char *iface) {
     return bytes;
 
   char line[512];
-  char search[64];
-
-  // %62s: pour s'assurer que search[64] ne déborde jamais, même si iface est
-  // trop long
-  snprintf(search, sizeof(search), "%.62s:", iface);
-
   while (fgets(line, sizeof(line), f)) {
-    char *ptr = strstr(line, search);
-    if (ptr) {
-      ptr += strlen(search);
-      sscanf(ptr, "%llu", &bytes.rx);
-      break;
+    char itf[32];
+    unsigned long long rx_bytes = 0;
+
+    // SÉCURITÉ OPTIMISÉE : sscanf extrait proprement l'interface et ses octets
+    // reçus. " %31[^:]" ignore les espaces initiaux et s'arrête strictement au
+    // caractère ':' Cela évite les faux positifs si une interface s'appelle
+    // "veth1" et l'autre "eth1".
+    if (sscanf(line, " %31[^:]:%llu", itf, &rx_bytes) == 2) {
+      if (strcmp(itf, iface) == 0) {
+        bytes.rx = rx_bytes;
+        break;
+      }
     }
   }
   fclose(f);
   return bytes;
+}
+
+// --- NOUVELLE FONCTION D'AFFICHAGE ---
+void format_and_print_speed(unsigned long long diff) {
+  // CONTROLE 1 : Vitesse maximale théorique (ex: brider à 999 Go/s)
+  // 999 Go/s en base 2 = 999 * 1024 * 1024 * 1024
+  const unsigned long long MAX_VITESSE_POSSIBLE = 1072693248000ULL;
+
+  if (diff > MAX_VITESSE_POSSIBLE) {
+    diff = MAX_VITESSE_POSSIBLE; // On sature à la valeur max proprement
+  }
+
+  // Icône noire collée au texte
+  printf("%%{F#000000}󱘖 %%{F-}");
+
+  // CONSTANTES POUR LES SEUILS (Calculs stricts en Base 2)
+  const unsigned long long KIO = 1024ULL;
+  const unsigned long long MIO = 1024ULL * 1024ULL;
+  const unsigned long long GIO = 1024ULL * 1024ULL * 1024ULL;
+
+  // LOGIQUE DE COMPTEUR FIXE (3 chiffres + unité/s)
+  if (diff < KIO) {
+    if (diff > 999)
+      diff = 999;
+    printf("%03lluo/s", diff);
+
+  } else if (diff < MIO) {
+    unsigned long long k = diff / KIO;
+    if (k > 999)
+      k = 999;
+    printf("%03lluKo/s", k);
+
+  } else if (diff < GIO) {
+    unsigned long long m = diff / MIO;
+    if (m > 999)
+      m = 999;
+    printf("%03lluMo/s", m);
+
+  } else {
+    unsigned long long g = diff / GIO;
+    if (g > 999)
+      g = 999;
+    printf("%03lluGo/s", g);
+  }
+
+  printf("\n");
 }
 
 int main() {
@@ -87,7 +132,7 @@ int main() {
   get_active_interface(iface, sizeof(iface));
 
   if (iface[0] == '\0') {
-    printf("%%{F#000000}󱘖 %%{F-}---o"); // Format stable même hors ligne
+    printf("%%{F#000000}󱘖 %%{F-}---o\n");
     return 0;
   }
 
@@ -95,28 +140,11 @@ int main() {
   usleep(1000000);
   NetBytes b2 = get_bytes(iface);
 
-  unsigned long long diff = b2.rx - b1.rx;
+  // Sécurité anti-rollover
+  unsigned long long diff = (b2.rx >= b1.rx) ? (b2.rx - b1.rx) : 0;
 
-  // Icône noire collée au texte
-  printf("%%{F#000000}󱘖 %%{F-}");
+  // Appel de la nouvelle fonction
+  format_and_print_speed(diff);
 
-  // LOGIQUE DE COMPTEUR FIXE (3 chiffres + 1 espace + 1 unité)
-  if (diff < 1000) {
-    // Affiche de 000 o à 999 o
-    printf("%03lluo", diff);
-  } else if (diff < 1000000) {
-    // Affiche de 001 K à 999 K
-    unsigned long long k = diff / 1024;
-    if (k == 0)
-      printf("999o"); // Sécurité pour la transition
-    else
-      printf("%03lluK", k);
-  } else {
-    // Affiche de 001 M à 999 M
-    unsigned long long m = diff / 1048576;
-    printf("%03lluM", m);
-  }
-
-  printf("\n");
   return 0;
 }
