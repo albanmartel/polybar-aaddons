@@ -70,7 +70,7 @@ const ProcessToLaunch apps[] = {
     {CMD_EXECVP, 0, {"/usr/local/bin/clipboard_tool", NULL}, NULL},
     {CMD_EXECVP, 0, {"picom", "--config", PATH_PICOM_CFG, NULL}, NULL},
     {CMD_EXECVP, 0, {"dunst", NULL}, NULL},
-    {CMD_EXECVP, 0, {"pcmanfm-qt --desktop", NULL}, NULL},
+    {CMD_EXECVP, 0, {"pcmanfm-qt", "--desktop", NULL}, NULL},
 
     // Bloc Chronométré A
     {CMD_SYSTEM,
