@@ -1,4 +1,4 @@
-#include <glib.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,77 +72,83 @@ long get_free_space_mb(const char *path) {
  * @return La taille en Mo, ou 0 en cas d'erreur ou de chemin invalide.
  */
 long get_dir_size_mb(const char *dir) {
-  // 1. Sécurité : On vérifie si le pointeur est NULL
-  if (dir == NULL) {
-    g_printerr("Erreur [get_dir_size_mb] : Le pointeur de dossier est NULL.\n");
+  if (dir == NULL || strlen(dir) == 0) {
+    fprintf(stderr, "Erreur [get_dir_size_mb] : Argument invalide.\n");
     return 0;
   }
 
-  // 2. Sécurité : On vérifie si la chaîne est vide
-  if (strlen(dir) == 0) {
-    g_printerr(
-        "Erreur [get_dir_size_mb] : Le chemin de dossier fourni est vide.\n");
+  int pfd[2];
+  if (pipe(pfd) < 0) {
+    perror("Erreur pipe");
     return 0;
   }
 
-  // 3. Sécurité Absolue : On échappe le chemin pour empêcher les injections
-  // Shell g_shell_quote entoure la chaîne de guillemets simples et gère les
-  // caractères dangereux.
-  char *safe_dir = g_shell_quote(dir);
-  if (safe_dir == NULL)
-    return 0;
-
-  // On augmente un peu la taille du tampon pour accueillir les guillemets
-  // d'échappement
-  char cmd[1024];
-  // Note : On enlève les \" autour de %s car g_shell_quote ajoute déjà ses
-  // propres protections
-  snprintf(cmd, sizeof(cmd), "du -sm %s | cut -f1", safe_dir);
-
-  // On peut libérer safe_dir dès que la commande est formatée dans le tableau
-  // 'cmd'
-  g_free(safe_dir);
-
-  FILE *fp = popen(cmd, "r");
-  if (!fp) {
-    g_printerr("Erreur [get_dir_size_mb] : Impossible d'exécuter popen.\n");
+  pid_t pid = fork();
+  if (pid < 0) {
+    perror("Erreur fork du");
+    close(pfd[0]);
+    close(pfd[1]);
     return 0;
   }
 
-  char result[16];
-  if (fgets(result, sizeof(result), fp) == NULL) {
-    pclose(fp);
-    return 0;
+  if (pid == 0) {
+    // Enfant : exécute 'du -sm dir' de manière sécurisée sans passer par un
+    // shell
+    close(pfd[0]);
+    if (dup2(pfd[1], STDOUT_FILENO) < 0) {
+      _exit(1);
+    }
+    close(pfd[1]);
+
+    // Rediriger stderr vers /dev/null pour éviter de polluer la console
+    if (freopen("/dev/null", "w", stderr) == NULL) {
+      _exit(1);
+    }
+
+    execlp("du", "du", "-sm", dir, (char *)NULL);
+    _exit(127);
   }
 
-  pclose(fp);
-  return atol(result);
+  // Parent
+  close(pfd[1]);
+  char result[32] = {0};
+  ssize_t n = read(pfd[0], result, sizeof(result) - 1);
+  close(pfd[0]);
+
+  waitpid(pid, NULL, 0);
+
+  if (n <= 0)
+    return 0;
+
+  // Extraire le nombre (du renvoie "TAILLE\tCHEMIN\n")
+  char *end;
+  long size = strtol(result, &end, 10);
+  return (end == result) ? 0 : size;
 }
 
-int main() {
-  prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
-
+/**
+ * @brief Prépare un profil Firefox en RAM, le lance, lie sa durée de vie au
+ * parent, et nettoie la RAM à sa fermeture.
+ * @return 0 en cas de succès, 1 en cas d'erreur.
+ */
+int launch_firefox_profile(void) {
   char *home = getenv("HOME");
   if (!home) {
     fprintf(stderr, MSG_ERR_HOME);
     return 1;
   }
 
-  // --- Définition des Chemins ---
   char source_model[1024];
   char temp_base_path[256];
   char temp_profile[1024];
   char cmd[2500];
 
-  // Détection dynamique de l'ID utilisateur pour /run/user/ID (RAM)
   snprintf(temp_base_path, sizeof(temp_base_path), "/run/user/%d", getuid());
-
-  // Construction des chemins
   snprintf(source_model, sizeof(source_model), "%s%s", home, SOURCE_SUBPATH);
   snprintf(temp_profile, sizeof(temp_profile), "%s/firefox_plume_%ld",
            temp_base_path, (long)time(NULL));
 
-  // 1. Vérifications d'espace disque en RAM
+  // 1. Espace disque
   long required = get_dir_size_mb(source_model);
   long available = get_free_space_mb(temp_base_path);
   printf(MSG_ESPACE_REQ, required, available);
@@ -152,7 +158,7 @@ int main() {
     return 1;
   }
 
-  // 2. Création du dossier et Copie du modèle
+  // 2. Déploiement du modèle
   printf(MSG_PREPARATION);
   snprintf(cmd, sizeof(cmd), "cp -a \"%s/.\" \"%s/\"", source_model,
            temp_profile);
@@ -161,43 +167,56 @@ int main() {
     return 1;
   }
 
-  // 3. Nettoyage préventif des fichiers de verrouillage
+  // 3. Verrous
   snprintf(cmd, sizeof(cmd), "rm -f \"%s/.parentlock\" \"%s/lock\"",
            temp_profile, temp_profile);
-  system(cmd);
+  if (system(cmd) < 0) {
+  }
 
-  // 4. Lancement de Firefox
+  // 4. Exécution
   pid_t pid = fork();
-
   if (pid < 0) {
     perror("Erreur fork");
     return 1;
   }
 
   if (pid == 0) {
-    // --- Processus Enfant ---
-    // Forcer X11 si nécessaire et thème sombre
+    // Enfant : Lie sa survie au parent (gdesktop / session-manager)
+    prctl(PR_SET_PDEATHSIG, SIGTERM);
+    if (getppid() == 1)
+      _exit(0);
+
     setenv("GDK_BACKEND", "x11", 1);
     setenv("GTK_THEME", GTK_THEME_VAL, 1);
 
     printf(MSG_LANCEMENT, FIREFOX_BIN, temp_profile);
-
     execlp(FIREFOX_BIN, FIREFOX_BIN, "--profile", temp_profile, "--no-remote",
            (char *)NULL);
-
     perror("Erreur execlp");
-    exit(1);
+    _exit(127);
   } else {
-    // --- Processus Parent ---
-    wait(NULL); // Attend que Firefox soit fermé
+    // Parent : Attend Firefox
+    int status;
+    while (waitpid(pid, &status, 0) < 0) {
+      if (errno != EINTR)
+        break;
+    }
 
+    // Nettoyage impératif
     printf(MSG_FERMETURE);
     snprintf(cmd, sizeof(cmd), "rm -rf \"%s\"", temp_profile);
-
     if (system(cmd) == 0) {
       printf(MSG_NETTOYAGE_OK);
     }
   }
 
   return 0;
+}
+
+int main(void) {
+  // Changement du nom du processus pour le système
+  prctl(PR_SET_NAME, PROGRAMME_NAME, 0, 0, 0);
+
+  // Appel de notre fonction
+  return launch_firefox_profile();
 }

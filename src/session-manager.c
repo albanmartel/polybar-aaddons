@@ -1,5 +1,4 @@
 #include <errno.h>
-#include <glib.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +21,9 @@
 // Limites structurelles pour la sécurité
 #define MAX_ARGV_SIZE 30
 #define MAX_PATH_SIZE 512
+
+// --- ARGUMENTS DE NETTOYAGE CENTRALISÉS ---
+const char *const gpg_kill_args[] = {"gpgconf", "--kill", "gpg-agent", NULL};
 
 pid_t polybar_pid = 0;
 
@@ -117,12 +119,42 @@ int is_program_installed(const char *name) {
     return 0;
   }
 
-  char *path = g_find_program_in_path(name);
-  if (path) {
-    g_free(path);
-    return 1;
+  // Si le nom contient un '/', c'est un chemin absolu ou relatif direct
+  if (strchr(name, '/')) {
+    return (access(name, X_OK) == 0);
   }
-  return 0;
+
+  // Récupération du PATH système
+  const char *path_env = getenv("PATH");
+  if (!path_env) {
+    path_env = "/usr/bin:/bin"; // Valeur par défaut si PATH n'est pas défini
+  }
+
+  // Duplication de la chaîne PATH car strtok va la modifier
+  char *path_env_dup = strdup(path_env);
+  if (!path_env_dup) {
+    return 0;
+  }
+
+  int found = 0;
+  char full_path[MAX_PATH_SIZE];
+  char *token = strtok(path_env_dup, ":");
+
+  while (token != NULL) {
+    // Construction du chemin complet: dossier/nom_du_programme
+    if (snprintf(full_path, sizeof(full_path), "%s/%s", token, name) <
+        (int)sizeof(full_path)) {
+      // X_OK vérifie si le fichier existe ET est exécutable
+      if (access(full_path, X_OK) == 0) {
+        found = 1;
+        break;
+      }
+    }
+    token = strtok(NULL, ":");
+  }
+
+  free(path_env_dup);
+  return found;
 }
 
 void resolve_home_path(const char *src, char *dest, size_t dest_len) {
@@ -225,8 +257,6 @@ void terminate_all_apps(void) {
 
   size_t i = num_apps;
   while (i--) {
-    // Si l'application dispose d'un PID traqué dans notre structure de suivi,
-    // on la termine
     if (session_pids[i].pid > 0) {
       printf("[Nettoyage] Envoi SIGTERM à : %s (PID: %d)\n",
              session_pids[i].name ? session_pids[i].name : "Commande Shell",
@@ -235,19 +265,82 @@ void terminate_all_apps(void) {
       kill(session_pids[i].pid, SIGTERM);
     }
   }
+
+  // --- ARRETT ASYNCHRONE DE GPG-AGENT ---
+  printf("[Nettoyage] Arrêt asynchrone de gpg-agent...\n");
+
+  if (is_program_installed(gpg_kill_args[0])) {
+    pid_t gpg_pid = fork();
+
+    if (gpg_pid == 0) {
+      if (freopen("/dev/null", "w", stdout) == NULL ||
+          freopen("/dev/null", "w", stderr) == NULL) {
+        _exit(1);
+      }
+
+      // On cast en (char *const *) uniquement ici pour satisfaire execvp
+      // qui requiert des pointeurs modifiables (bien qu'il ne les modifie pas)
+      execvp(gpg_kill_args[0], (char *const *)gpg_kill_args);
+      _exit(127);
+    } else if (gpg_pid < 0) {
+      perror("[Erreur] Échec du fork pour gpgconf");
+    }
+  } else {
+    fprintf(stderr, "[Avertissement] gpgconf non installé.\n");
+  }
 }
 
 // --- NETTOYAGE ---
-void cleanup_session() {
-  printf("[Supervisor] Signal de fermeture reçu ou Polybar arrêté. "
-         "Nettoyage...\n");
+void cleanup_session(void) {
+  printf("[Supervisor] Signal de fermeture reçu. Nettoyage...\n");
 
+  // On ignore les signaux pour éviter les boucles infinies
   signal(SIGTERM, SIG_IGN);
   signal(SIGINT, SIG_IGN);
 
+  // 1. Fermeture ordonnée de vos applications traquées (Firefox, picom, etc.)
   terminate_all_apps();
 
+  // 2. Demande de fermeture propre à Openbox (Sans system)
+  if (is_program_installed("openbox")) {
+    pid_t ob_pid = fork();
+    if (ob_pid == 0) {
+      char *const ob_args[] = {"openbox", "--exit", NULL};
+
+      // Silence radio pour l'enfant
+      if (freopen("/dev/null", "w", stdout) == NULL ||
+          freopen("/dev/null", "w", stderr) == NULL) {
+        _exit(1);
+      }
+
+      execvp(ob_args[0], ob_args);
+      _exit(127);
+    }
+    // On n'attend pas Openbox, on le laisse s'éteindre en parallèle
+  }
+
+  // On laisse 1 seconde aux applications et à Openbox pour sauvegarder et
+  // fermer
   sleep(1);
+
+  // 3. LE COUP DE BALAI FINAL VIA LOGINCTL (Sans system)
+  // Plutôt que de fork() et d'attendre, on utilise la technique du "Suicide
+  // utile" : Notre session-manager MORCEAU DE CODE va se REMPLACER lui-même par
+  // loginctl. C'est la fin du programme, donc exec est parfait ici.
+  printf("[Supervisor] Libération totale de la RAM via Systemd.\n");
+
+  // Redirection finale pour éviter les messages parasites dans le TTY
+  if (freopen("/dev/null", "w", stdout) != NULL &&
+      freopen("/dev/null", "w", stderr) != NULL) {
+
+    // execlp remplace le processus actuel. Le code en dessous ne sera JAMAIS
+    // exécuté.
+    execlp("loginctl", "loginctl", "terminate-session", "self", (char *)NULL);
+  }
+
+  // Si execlp échoue (par exemple si loginctl n'est pas installé), on assure la
+  // sortie :
+  perror("[Erreur] Échec critique de loginctl");
   exit(0);
 }
 

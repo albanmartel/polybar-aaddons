@@ -318,7 +318,8 @@ void refresh_desktop(GtkWidget *fixed) {
 
         DragData *dd = g_new0(DragData, 1);
         dd->app_id = g_strdup(filename);
-        g_object_set_data(G_OBJECT(event_box), "app_info", app_info);
+        g_object_set_data_full(G_OBJECT(event_box), "app_info", app_info,
+                               g_object_unref);
         // Utilisation de g_object_set_data_full pour libérer DragData
         // automatiquement à la destruction du widget
         g_object_set_data_full(G_OBJECT(event_box), "drag_data", dd,
