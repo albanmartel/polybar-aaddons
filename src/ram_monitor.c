@@ -25,34 +25,39 @@ int compare_proc(const void *a, const void *b) {
   return 0;
 }
 
-// Nouvelle fonction pour obtenir le VRAI total de RAM consommée par le système
+// Nouvelle version calquée sur la méthode moderne (free -h / ram-tool)
 double get_system_real_used_ram(void) {
   FILE *fp = fopen("/proc/meminfo", "r");
   if (!fp)
     return 0.0;
 
-  long total = 0, free_mem = 0, buffers = 0, cached = 0, reclaimable = 0;
-  char label[64];
-  long value;
+  unsigned long total = 0;
+  unsigned long available = 0;
+  char line[256];
+  int found = 0;
 
-  while (fscanf(fp, "%63s %ld kB", label, &value) == 2) {
-    if (strcmp(label, "MemTotal:") == 0)
-      total = value;
-    else if (strcmp(label, "MemFree:") == 0)
-      free_mem = value;
-    else if (strcmp(label, "Buffers:") == 0)
-      buffers = value;
-    else if (strcmp(label, "Cached:") == 0)
-      cached = value;
-    else if (strcmp(label, "SReclaimable:") == 0)
-      reclaimable = value;
+  // Lecture identique à ram-tool
+  while (fgets(line, sizeof(line), fp)) {
+    if (strncmp(line, "MemTotal:", 9) == 0) {
+      sscanf(line, "MemTotal: %lu", &total);
+      found++;
+    } else if (strncmp(line, "MemAvailable:", 13) == 0) {
+      sscanf(line, "MemAvailable: %lu", &available);
+      found++;
+    }
+
+    if (found == 2)
+      break;
   }
   fclose(fp);
 
-  // Formule officielle du noyau Linux (et de htop) pour la RAM REELLEMENT
-  // utilisée
-  long used_kb = total - free_mem - buffers - cached - reclaimable;
-  return (double)used_kb / 1024.0; // Conversion en Mo
+  if (found < 2 || total == 0) {
+    return 0.0;
+  }
+
+  // Calcul en Mo (car ram-monitor attend des Mo pour l'affichage)
+  unsigned long used_kb = total - available;
+  return (double)used_kb / 1024.0;
 }
 
 char *get_sorted_ram_report() {
