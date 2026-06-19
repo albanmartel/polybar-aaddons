@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 // --- CONFIGURATION CENTRALISÉE ---
-#define PROGRAMME_NAME "launcher-lxterminal"
+#define PROGRAMME_NAME "gterminal"
 #define MAX_PATH_SIZE 512
 
 // Commande de lancement et ses arguments sous forme de constante de réglage
