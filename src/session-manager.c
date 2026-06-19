@@ -44,6 +44,12 @@ typedef struct {
 } RuntimeProcess;
 
 // --- DÉCLARATION DU TABLEAU DE CONFIGURATION (STRICTEMENT CONST) ---
+/* polkit gnome consomme trop de ressources */
+/* {CMD_EXECVP, 0, {"/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1",
+ * NULL}, NULL}, */
+/* feh n'est plus indispensable avec pacman-qt --desktop*/
+/* {CMD_EXECVP, 0, {"feh", "--no-fehbg", "--bg-fill", "--no-xinerama",
+ * PATH_WALLPAPER, NULL}, NULL},*/
 const ProcessToLaunch apps[] = {
     {CMD_EXECVP,
      0,
@@ -61,18 +67,10 @@ const ProcessToLaunch apps[] = {
     {CMD_EXECVP, 0, {"setxkbmap", "fr", NULL}, NULL},
     {CMD_EXECVP, 0, {"numlockx", "on", NULL}, NULL},
     {CMD_EXECVP, 0, {"gpgconf", "--launch", "gpg-agent", NULL}, NULL},
-    {CMD_EXECVP,
-     0,
-     {"feh", "--no-fehbg", "--bg-fill", "--no-xinerama", PATH_WALLPAPER, NULL},
-     NULL},
-    {CMD_EXECVP,
-     0,
-     {"/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1", NULL},
-     NULL},
     {CMD_EXECVP, 0, {"/usr/local/bin/clipboard_tool", NULL}, NULL},
     {CMD_EXECVP, 0, {"picom", "--config", PATH_PICOM_CFG, NULL}, NULL},
     {CMD_EXECVP, 0, {"dunst", NULL}, NULL},
-    {CMD_EXECVP, 0, {"gdesktop", NULL}, NULL},
+    {CMD_EXECVP, 0, {"pcmanfm-qt --desktop", NULL}, NULL},
 
     // Bloc Chronométré A
     {CMD_SYSTEM,
