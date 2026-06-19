@@ -95,13 +95,12 @@ const ProcessToLaunch apps[] = {
      3,
      {"redshift", "-l", "43.6:1.4", "-t", "5700:3600", NULL},
      NULL},
-    {CMD_EXECVP, 3, {"gkhal", NULL}, NULL},
     {CMD_BLUETOOTH, 3, {NULL}, NULL},
     {CMD_BATTERY, 3, {NULL}, NULL},
 
     // Bloc Chronométré C
-    {CMD_EXECVP, 5, {"launcher-qterminal", NULL}, NULL},
-    {CMD_EXECVP, 5, {"gfirefox", NULL}, NULL},
+    {CMD_EXECVP, 5, {"gterminal", NULL}, NULL},
+    {CMD_EXECVP, 5, {"glibrewolf", NULL}, NULL},
     {CMD_EXECVP, 5, {"gneomutt", NULL}, NULL}};
 
 const size_t num_apps = sizeof(apps) / sizeof(apps[0]);
