@@ -1,5 +1,6 @@
 # --- Configuration ---
 CC = gcc
+CXX = g++
 CFLAGS = -Wall -Wextra -O2
 DEBUG_FLAGS = -g -O0 # Nécessaire pour des rapports Valgrind précis
 DESTDIR = /usr/local/bin
@@ -8,7 +9,7 @@ BACKUP_NAME = backup_outils_$(shell date +%Y-%m-%d).tar.gz
 LOG_FILE = $(HOME)/log_systeme.txt
 
 # --- Dépendances ---
-DEPENDENCIES = zenity xclip wl-copy valgrind
+DEPENDENCIES = zenity xclip wl-copy valgrind fltk
 
 # --- INDIQUE A MAKE DE COMPILER PAR DÉFAUT ---
 .DEFAULT_GOAL := all
@@ -21,6 +22,9 @@ RESET = \033[0m
 
 # Détection des drapeaux GTK
 GTK_FLAGS = $(shell pkg-config --cflags --libs gtk+-3.0 gio-2.0)
+
+# --- Drapeaux spécifiques pour FLTK (C++) ---
+FLTK_FLAGS = $(shell fltk-config --cxxflags --ldflags)
 
 # --- Drapeaux spécifiques pour VTE (GTK + Terminal Embarqué) ---
 VTE_FLAGS = $(shell pkg-config --cflags --libs gtk+-3.0 vte-2.91 gio-2.0)
@@ -73,8 +77,11 @@ ALL_SPECIAL_PROGS = $(PROGS_VTE) $(PROGS_GTK) $(PROGS_X11) $(PROGS_ALSA) $(PROGS
 ALL_TOTAL_PROGS   = $(subst src/,,$(SRCS:.c=))
 PROGS_SIMPLE      = $(filter-out $(ALL_SPECIAL_PROGS), $(ALL_TOTAL_PROGS))
 
+# Ajout manuel du programme FLTK C++
+PROG_FLTK = ram-monitor
+
 # Liste finale propre, triée et garantie sans aucun doublon
-ALL_PROGS = $(sort $(PROGS_VTE) $(PROGS_GTK) $(PROGS_GLIB) $(PROGS_ALSA) $(PROGS_CLIP) $(PROGS_X11) $(PROGS_SIMPLE))
+ALL_PROGS = $(sort $(PROGS_VTE) $(PROGS_GTK) $(PROGS_GLIB) $(PROGS_ALSA) $(PROGS_CLIP) $(PROGS_X11) $(PROGS_SIMPLE) $(PROG_FLTK))
 
 # --- Aide ---
 help:
@@ -103,12 +110,19 @@ help:
 # --- Vérification des dépendances ---
 check-deps:
 	@echo -e "$(CYAN)🔍 Vérification des dépendances...$(RESET)"
-	@for cmd in $(DEPENDENCIES); do \
+	@# 1. Vérification des outils / commandes standards
+	@for cmd in $(filter-out fltk, $(DEPENDENCIES)); do \
 		if ! command -v $$cmd &> /dev/null; then \
 			echo -e "$(RED)❌ Erreur : $$cmd n'est pas installé.$(RESET)"; \
 			exit 1; \
 		fi; \
 	done
+	@# 2. Vérification spécifique de FLTK (via son outil de config)
+	@if ! command -v fltk-config &> /dev/null; then \
+		echo -e "$(RED)❌ Erreur : FLTK (développement) n'est pas installé. Installez-le avec 'sudo pacman -S fltk'$(RESET)"; \
+		exit 1; \
+	fi
+	@# 3. Vérification de libclipboard
 	@if [ ! -f /usr/include/libclipboard.h ] && [ ! -f /usr/local/include/libclipboard.h ]; then \
 		echo -e "$(RED)❌ Erreur : libclipboard.h non trouvé. Installez libclipboard-git (AUR).$(RESET)"; \
 		exit 1; \
@@ -164,6 +178,10 @@ $(PROGS_X11): %: src/%.c
 $(PROGS_GLIB): %: src/%.c
 	@echo -e "$(BLUE)⚙️  Compilation GLib seule :$(RESET) $<"
 	$(CC) $(CFLAGS) $< -o $@ $(GLIB_FLAGS)
+
+$(PROG_FLTK): %: src/%.cpp
+	@echo -e "$(GREEN)🎨 Compilation FLTK (C++) :$(RESET) $<"
+	$(CXX) $(CXXFLAGS) $< -o $@ $(FLTK_FLAGS)
 
 # --- Commande de Test Standard ---
 test: all
