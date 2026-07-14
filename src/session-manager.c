@@ -21,6 +21,13 @@
 #define ENV_MONITOR "DP-1"
 #define POLYBAR_BAR_NAME "ma_barre"
 
+// Configuration du clavier et pavé numérique au démarrage
+#define PROG_SETXKBMAP "setxkbmap"
+#define CMD_SETXKBMAP "setxkbmap fr"
+
+#define PROG_NUMLOCKX "numlockx"
+#define CMD_NUMLOCKX "numlockx on"
+
 #define MAX_PATH_SIZE 512
 #define MAX_LINE_SIZE 1024
 #define MAX_RUNNING_APPS 128
@@ -182,6 +189,16 @@ void handle_signal(int sig) {
 
 // --- SÉQUENCE PRINCIPALE ---
 void launch_session(void) {
+  // --- 1. CLAVIER ET NUMLOCK (Exécutés en priorité absolue) ---
+  printf("[Session] Configuration du clavier et du pavé numérique...\n");
+  if (is_program_installed(PROG_SETXKBMAP)) {
+    (void)system(CMD_SETXKBMAP);
+  }
+  if (is_program_installed(PROG_NUMLOCKX)) {
+    (void)system(CMD_NUMLOCKX);
+  }
+
+  // --- 2. CONFIGURATION DE L'ENVIRONNEMENT ---
   char wallpaper_resolved[MAX_PATH_SIZE];
   resolve_home_path(PATH_WALLPAPER, wallpaper_resolved,
                     sizeof(wallpaper_resolved));
